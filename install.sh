@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# quickshell-pill-bar installer
-# https://github.com/DJRCX/quickshell-pill-bar
+# simple-bar installer
+# https://github.com/DJRCX/simple-bar
 # ==============================================================================
 
 set -euo pipefail
@@ -16,10 +16,10 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/pill-bar"
+TARGET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/simple-bar"
 
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────${NC}"
-echo -e "${BOLD}${CYAN}       Quickshell Pill Bar — Setup & Installer          ${NC}"
+echo -e "${BOLD}${CYAN}          Simple Bar — Setup & Installer                ${NC}"
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────${NC}"
 
 # 1. Check Dependencies

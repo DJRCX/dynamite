@@ -1,4 +1,4 @@
-# 🌙 quickshell-pill-bar
+# 🌙 simple-bar
 
 > A minimal, pitch-black floating status pill & interactive quick-settings panels built with [Quickshell](https://quickshell.outfoxxed.me/) for Wayland compositors ([Niri](https://github.com/YaLTeR/niri), [Hyprland](https://hyprland.org/), [Sway](https://swaywm.org/)).
 
@@ -55,17 +55,17 @@ The theme relies on standard Linux utilities and Quickshell:
 Clone the repository and run the setup script:
 
 ```bash
-git clone https://github.com/DJRCX/quickshell-pill-bar.git
-cd quickshell-pill-bar
+git clone https://github.com/DJRCX/simple-bar.git
+cd simple-bar
 ./install.sh
 ```
 
-The installer verifies your dependencies, ensures execution permissions, and automatically symlinks the configuration to `~/.config/quickshell/pill-bar`.
+The installer verifies your dependencies, ensures execution permissions, and automatically symlinks the configuration to `~/.config/quickshell/simple-bar`.
 
 ### Testing / Starting Manually
 
 ```bash
-qs -d -p ~/.config/quickshell/pill-bar
+qs -d -p ~/.config/quickshell/simple-bar
 ```
 
 ---
@@ -76,17 +76,17 @@ Add the launch command to your compositor's configuration file:
 
 ### Niri (`~/.config/niri/config.kdl`)
 ```kdl
-spawn-at-startup "qs" "-d" "-p" "~/.config/quickshell/pill-bar"
+spawn-at-startup "qs" "-d" "-p" "~/.config/quickshell/simple-bar"
 ```
 
 ### Hyprland (`~/.config/hypr/hyprland.conf`)
 ```ini
-exec-once = qs -d -p ~/.config/quickshell/pill-bar
+exec-once = qs -d -p ~/.config/quickshell/simple-bar
 ```
 
 ### Sway (`~/.config/sway/config`)
 ```ini
-exec qs -d -p ~/.config/quickshell/pill-bar
+exec qs -d -p ~/.config/quickshell/simple-bar
 ```
 
 ---
@@ -94,7 +94,7 @@ exec qs -d -p ~/.config/quickshell/pill-bar
 ## 🛠️ Architecture & Future Customizations
 
 ```
-quickshell-pill-bar/
+simple-bar/
 ├── shell.qml          # Declarative Quickshell interface (Bar, Balls, Panels, Sliders)
 ├── scripts/
 │   └── control.py     # Asynchronous hardware bridge (nmcli, bluetoothctl, wpctl, etc.)
@@ -103,12 +103,12 @@ quickshell-pill-bar/
 ```
 
 ### Making Future Changes
-Since the configuration is symlinked to `~/.config/quickshell/pill-bar`, any edits made in your local repository are immediately active:
+Since the configuration is symlinked to `~/.config/quickshell/simple-bar`, any edits made in your local repository are immediately active:
 
 1. Edit [`shell.qml`](shell.qml) or [`scripts/control.py`](scripts/control.py).
 2. Reload quickshell:
    ```bash
-   killall qs && qs -d -p ~/.config/quickshell/pill-bar
+   killall qs && qs -d -p ~/.config/quickshell/simple-bar
    ```
 3. Commit and push your changes to GitHub:
    ```bash
