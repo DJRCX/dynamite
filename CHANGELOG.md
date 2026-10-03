@@ -136,11 +136,60 @@ A comprehensive record of all features implemented, bugs investigated, root caus
 
 ---
 
-## 4. File Diffs & Changes Summary
+### 🐛 Bug 6: Notification Toast Collapsing Center Pill into a Ball
+* **Symptom**: When a desktop notification arrived, the center pill shrank into an awkward circle/ball with the text overflowing vertically above and below.
+* **Root Cause**:
+  * The toast container’s `implicitWidth` evaluated to `0` while invisible, causing width recalculation to collapse when transitioning.
+  * In addition, `toastRow` rendered summaries and multiline bodies vertically in a `ColumnLayout` without bounding height constraints, spilling text outside the 26px pill boundary.
+* **Fix**:
+  * Added a dedicated `toastContentWidth` property that persistently stores content dimensions.
+  * Replaced the multi-line layout with a strict horizontal `Row` (`height: 26`) that sanitizes newlines via `.replace(/[\r\n]+/g, " ")`, truncates with `maximumLineCount: 1` and `elide: Text.ElideRight`, inserts an inline bullet separator (`•`), and displays a smooth hover dismiss button (`✕`).
+
+---
+
+### 🐛 Bug 7: Detached Floating Panels with Visible Gaps
+* **Symptom**: Several quick-settings panels (Connectivity, Battery, System Resources, App Context) floated detached from the bar with 6px gaps, asymmetric offsets (`-120px` / `+120px`), and mismatched widths (360px–380px), breaking the unified pill aesthetic.
+* **Root Cause**: Modals were designed as individual floating flyouts rather than adhering to the flush-edge unified panel system established by the application launcher and clipboard panels.
+* **Fix**:
+  * Updated `centerPill.hasOpenPanel` to trigger dynamically whenever any popup is open (`root.activePopup !== "" && !root.isPopupClosing`), expanding the center pill to a full `560px` width and flattening the adjoining corners.
+  * Standardized all 8 overlay panels (`connPanel`, `batteryPanel`, `sysresPanel`, `appContextPanel`, `calendarPanel`, `appsPanel`, `clipboardPanel`, `notificationsPanel`) to `width: 560`, `anchors.horizontalCenter: parent.horizontalCenter`, and `y: root.barPosition === "top" ? 0 : (parent.height - height)` with matching zero-gap top/bottom radii and cubic easing animations.
+
+---
+
+### 🐛 Bug 8: System Freeze on Service Restart
+* **Symptom**: Executing `systemctl --user restart simple-bar.service` inadvertently closed running graphical applications because the service was bound to compositor lifecycle targets.
+* **Fix**:
+  * Hot-reload workflows now rely strictly on Quickshell's native automatic file watcher upon editing `shell.qml`, eliminating the need to ever restart the user systemd unit during desktop sessions.
+
+---
+
+### 🐛 Bug 9: Duplicate Hardware Telemetry in Battery Flyout
+* **Symptom**: CPU and RAM resource meters duplicated functionality inside the Battery quick settings panel, creating unnecessary clutter and blank space.
+* **Fix**:
+  * Extracted CPU, RAM, and Swap monitoring into dedicated **Workspace 3 (System Resources)** and a unified **System Resources** panel.
+  * Removed the redundant bars from `batteryPanel` and tightened its height to 400px.
+
+---
+
+## 4. Bar-Workspaces System (v2.0)
+
+| Workspace | Purpose | Unhovered State | Hovered State | Click Interaction |
+|---|---|---|---|---|
+| **WS 0: Overview** | Primary desktop telemetry | Focused App Title, Clock + Date, Weather, Notification Bell | Reveals Launcher button, Balls, App Icon, Pager dots | • Focused App: Opens App Context Menu.<br>• Clock: Opens Unified Calendar.<br>• Bell: Opens Notifications History. |
+| **WS 1: Status & Controls** | Hardware & connectivity shortcuts | Clean icon row: Wi-Fi, Bluetooth, Caffeine, Battery, Brightness, Volume | Reveals descriptive labels and values beside each icon | • Wi-Fi/BT: Opens Connectivity.<br>• Bat/Br/Vol: Opens Battery & Device.<br>• Caffeine: Toggles idle inhibitor. |
+| **WS 2: Media Player** | MPRIS player interface | Album art, track title, artist name | Reveals Previous / Next track buttons | Toggles Play / Pause. |
+| **WS 3: System Resources** | Live hardware vitals | CPU %, CPU Temp (°C), RAM usage, Swap usage | Reveals labels ("CPU", "Temp", "RAM", "Swap") | Opens detailed System Resources panel with `btop` launcher. |
+
+* **Workspace Switching**: Bound to `Mod+Alt+Left` (previous) and `Mod+Alt+Right` (next) via Quickshell IPC.
+
+---
+
+## 5. File Diffs & Changes Summary
 
 | File | Changes |
 |---|---|
-| [`shell.qml`](shell.qml) | • Overhauled panel layout using explicit `y` positioning.<br>• Added complete App Launcher & Clipboard History UI.<br>• Reverted status balls to stable horizontal anchors.<br>• Added power action buttons to Battery panel.<br>• Embedded volume/brightness OSD in center pill. |
-| [`scripts/control.py`](scripts/control.py) | • Added full-color icon theme resolution.<br>• Added clipboard history backend via `cliphist`.<br>• Added asynchronous `power-action` handler for lock, sleep, reboot, and poweroff. |
+| [`shell.qml`](shell.qml) | • Implemented 4-Workspace Bar system with smooth horizontal transition animations.<br>• Added native `NotificationServer` and horizontal in-pill toast HUD with hover clear button.<br>• Unified all 8 overlay panels (560px, flush against bar, zero margin, flat connecting corners).<br>• Added Focused App Context Menu with browser-specific actions.<br>• Added DND bell icon state (`󰂛`).<br>• Bound `Mod+Alt+Arrow` IPC handlers. |
+| [`scripts/control.py`](scripts/control.py) | • Added CPU temperature probing (`/sys/class/thermal`, `/sys/class/hwmon`).<br>• Added Swap memory calculation (`/proc/meminfo`).<br>• Added Caffeine inhibitor backend (`systemd-inhibit --what=idle:sleep ...`).<br>• Fixed detached subprocess execution to prevent EPIPE crashes in spawned apps. |
 | [`config.json`](config.json) | • Stores active bar rest position (`"top"` or `"bottom"`). |
-| [`CHANGELOG.md`](CHANGELOG.md) | • Full historical documentation of development, bugs, and fixes. |
+| [`install.sh`](install.sh) | • Added dependency verification for `systemd-inhibit` and audio/network utilities. |
+| [`CHANGELOG.md`](CHANGELOG.md) | • Complete documentation of v2.0 features, bugs, root causes, and fixes. |

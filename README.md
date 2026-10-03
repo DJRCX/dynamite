@@ -7,27 +7,17 @@
 ## ✨ Features
 
 - **🖤 Pitch-Black Aesthetic**: Pure `#000000` background with refined `#0a0a0a` cards and subtle high-contrast borders.
-- **💊 Clean Pill Resting State**: Displays clock and date in a compact, floating pill.
-- **🔮 Hover-Revealed Status Balls**: Moving the mouse near the bar smoothly animates out two floating quick-access balls:
-  - **Left Ball**: Wi-Fi & Bluetooth connectivity.
-  - **Right Ball**: Battery & system resources.
-- **🏷️ Dynamic Hover Expansion**:
-  - Hovering on the **Left Ball** expands it into an informative status pill showing your active Wi-Fi SSID and Bluetooth connection state.
-  - Hovering on the **Right Ball** expands it into an informative status pill showing battery percentage and charging state (`󰂄 90% Charging`).
-- **📶 Interactive Connectivity Panel**:
-  - Full tabbed interface for **Wi-Fi** and **Bluetooth**.
-  - **Wi-Fi**: Radio power toggle, rescan button, active network card with high-contrast **Disconnect** button, and scrollable available network list with one-click **Connect**.
-  - **Bluetooth**: Power toggle, paired device list with connect/disconnect actions, and direct launcher button for `blueman-manager`.
-  - Quick terminal shortcut to `nmtui`.
-- **⚡ Battery & Device Resources Panel**:
-  - Accurate battery stats: percentage, power draw (W), time remaining / time to full, and visual progress bar.
-  - **Ultra-Smooth Sliders**:
-    - **Volume Slider**: 1:1 cursor tracking on drag with zero lag, smooth easing on click and wheel scroll, and mute button (`wpctl`).
-    - **Brightness Slider**: Backlight adjustment with smooth animations and throttled hardware commands (`brightnessctl`).
-  - Real-time CPU usage, RAM usage, and system stats.
-  - Quick launcher shortcut for `btop`.
-- **🔊 Top-Bar Volume Scrolling**: Scroll the mouse wheel directly over the center clock pill to adjust audio volume on-the-fly with an auto-dismissing volume HUD.
-- **📐 Window Exclusive Zone**: Reserves 46px at the top edge so tiled and maximized windows never overlap the bar.
+- **🗂️ 4 Modular Bar-Workspaces**: Switch workspaces with `Mod+Alt+Left` / `Mod+Alt+Right`:
+  - **Workspace 0 (Overview)**: Focused app badge (with context menu), Clock + Unified Calendar, Weather/System Tray slot, and Notification Bell with DND status.
+  - **Workspace 1 (Status & Controls)**: Wi-Fi, Bluetooth, Caffeine inhibitor, Battery, Brightness, and Volume.
+  - **Workspace 2 (Media Player)**: MPRIS playback controls with track title and album art.
+  - **Workspace 3 (System Resources)**: Real-time CPU %, CPU Temp (°C), RAM usage, and Swap usage with dedicated details popup.
+- **🔗 Seamless Unified Panels**: All 8 flyout panels (Apps, Clipboard, Calendar, Connectivity, Battery, System Resources, Notifications, App Context) expand to a flush 560px width with flattened connecting edges directly merging into the bar pill.
+- **🔔 Native Notification Server & In-Pill HUD**: Built-in notification server with single-line horizontal toast HUD, newline sanitization, and hover dismiss button.
+- **☕ Caffeine Idle Inhibitor**: One-click system idle/sleep inhibition via `systemd-inhibit` with instant desktop feedback notifications.
+- **🚀 Integrated Application Launcher**: Categorized app drawer (`All`, `System`, `Development`, `Internet`, `Media`, etc.) with full keyboard navigation and automatic query resets.
+- **📋 Visual Clipboard History Manager**: Dual-format history for copied text and image thumbnails via `cliphist`.
+- **📐 Window Exclusive Zone**: Reserves 46px at the configured edge (top or bottom) so tiled and maximized windows never overlap the bar.
 - **🖱️ Outside-Click Dismissal**: Clicking outside any open panel or on any window instantly dismisses the panel back to the compact pill.
 
 ---

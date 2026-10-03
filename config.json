@@ -1,3 +1,5 @@
 {
-  "position": "bottom"
+  "position": "bottom",
+  "weather_lat": 23.7882,
+  "weather_lon": 90.3736
 }

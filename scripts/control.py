@@ -7,8 +7,123 @@ import glob
 import time
 import shlex
 import re
+import shutil
+import urllib.request
 
 CONFIG_PATH = os.path.expanduser("~/.config/quickshell/simple-bar/config.json")
+
+def detect_terminal():
+    env_term = os.environ.get("TERMINAL")
+    if env_term and shutil.which(env_term):
+        return env_term
+    for term in ['kitty', 'ghostty', 'alacritty', 'foot', 'wezterm', 'xterm', 'gnome-terminal']:
+        if shutil.which(term):
+            return term
+    return 'xterm'
+
+def launch_terminal(cmd_args=None):
+    term = detect_terminal()
+    if not cmd_args:
+        subprocess.Popen([term], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return term
+    if term == 'wezterm':
+        full_cmd = [term, 'start', '--'] + list(cmd_args)
+    else:
+        full_cmd = [term, '-e'] + list(cmd_args)
+    subprocess.Popen(full_cmd, start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return term
+
+def get_wifi_device():
+    try:
+        res = subprocess.run(['nmcli', '-t', '-f', 'DEVICE,TYPE', 'dev'], capture_output=True, text=True, timeout=2)
+        for line in res.stdout.strip().splitlines():
+            parts = line.split(':')
+            if len(parts) >= 2 and parts[1].strip() == 'wifi':
+                return parts[0].strip()
+    except Exception:
+        pass
+    return 'wlan0'
+
+def get_weather():
+    cache_dir = os.path.expanduser('~/.cache/simple-bar')
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, 'weather.json')
+
+    cfg = load_config()
+    lat = cfg.get('weather_lat')
+    lon = cfg.get('weather_lon')
+    units = cfg.get('weather_units', 'celsius')
+
+    now = time.time()
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached = json.load(f)
+            if now - cached.get('timestamp', 0) < 900:
+                return cached.get('data', {})
+        except Exception:
+            pass
+
+    if lat is None or lon is None:
+        try:
+            req = urllib.request.Request('http://ip-api.com/json/?fields=lat,lon', headers={'User-Agent': 'simple-bar'})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                geo = json.loads(resp.read().decode('utf-8'))
+                lat = geo.get('lat')
+                lon = geo.get('lon')
+                if lat is not None and lon is not None:
+                    cfg['weather_lat'] = lat
+                    cfg['weather_lon'] = lon
+                    save_config(cfg)
+        except Exception:
+            pass
+
+    if lat is None or lon is None:
+        lat, lon = 0.0, 0.0
+
+    temp_unit_param = '&temperature_unit=fahrenheit' if units == 'fahrenheit' else ''
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,is_day{temp_unit_param}"
+
+    wmo_desc = {
+        0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+        45: "Fog", 48: "Depositing rime fog", 51: "Light drizzle", 53: "Moderate drizzle",
+        55: "Dense drizzle", 61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+        71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow", 77: "Snow grains",
+        80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
+        85: "Slight snow showers", 86: "Heavy snow showers", 95: "Thunderstorm",
+        96: "Thunderstorm with hail", 99: "Thunderstorm with heavy hail"
+    }
+
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'simple-bar'})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            raw = json.loads(resp.read().decode('utf-8'))
+            curr = raw.get('current', {})
+            temp = curr.get('temperature_2m', 0)
+            unit_symbol = "°F" if units == 'fahrenheit' else "°C"
+            temp_str = f"{round(temp)}{unit_symbol}"
+            code = curr.get('weather_code', 0)
+            is_day = curr.get('is_day', 1)
+            desc = wmo_desc.get(code, "Clear sky")
+            data = {
+                "temp": temp_str,
+                "code": code,
+                "is_day": is_day,
+                "desc": desc
+            }
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump({"timestamp": now, "data": data}, f)
+            return data
+    except Exception:
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f).get('data', {})
+            except Exception:
+                pass
+        return {"temp": "--°C", "code": 0, "is_day": 1, "desc": "Offline"}
 
 def load_config():
     if os.path.exists(CONFIG_PATH):
@@ -248,9 +363,11 @@ def stream_wm():
 
     def monitor_brightness():
         last_b = None
-        bl_file = '/sys/class/backlight/intel_backlight/actual_brightness'
-        max_file = '/sys/class/backlight/intel_backlight/max_brightness'
-        has_bl = os.path.exists(bl_file) and os.path.exists(max_file)
+        bl_dirs = glob.glob('/sys/class/backlight/*')
+        bl_base = bl_dirs[0] if bl_dirs else ''
+        bl_file = os.path.join(bl_base, 'actual_brightness') if bl_base else ''
+        max_file = os.path.join(bl_base, 'max_brightness') if bl_base else ''
+        has_bl = bool(bl_base and os.path.exists(bl_file) and os.path.exists(max_file))
         max_val = 1
         if has_bl:
             try:
@@ -450,27 +567,57 @@ def get_status():
     except Exception:
         pass
 
-    # CPU & RAM
+    # CPU & RAM & Swap
     cpu_pct = 0
     mem_used = "0 GB"
     mem_total = "0 GB"
     mem_pct = 0.0
+    swap_used = "0 GB"
+    swap_pct = 0.0
     try:
         with open('/proc/meminfo') as f:
             lines = f.readlines()
-        t = a = 0
+        t = a = swap_t = swap_f = 0
         for l in lines:
             if 'MemTotal' in l: t = int(l.split()[1])
             elif 'MemAvailable' in l: a = int(l.split()[1])
+            elif 'SwapTotal' in l: swap_t = int(l.split()[1])
+            elif 'SwapFree' in l: swap_f = int(l.split()[1])
         if t > 0:
             used = (t - a) / 1024 / 1024
             total = t / 1024 / 1024
             mem_pct = round((t - a) / t, 2)
             mem_used = f"{used:.1f} GB"
             mem_total = f"{total:.1f} GB"
+        if swap_t > 0:
+            s_used = (swap_t - swap_f) / 1024 / 1024
+            swap_pct = round((swap_t - swap_f) / swap_t, 2)
+            swap_used = f"{s_used:.1f} GB"
 
         top_res = subprocess.run("top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'", shell=True, capture_output=True, text=True, timeout=2)
         cpu_pct = round(float(top_res.stdout.strip() or 0))
+    except Exception:
+        pass
+
+    # CPU Temperature
+    cpu_temp = 0
+    try:
+        import glob
+        temp_files = glob.glob('/sys/class/thermal/thermal_zone*/temp')
+        # Prefer zone0 (usually CPU), fallback to max
+        for tf in sorted(temp_files):
+            with open(tf) as f:
+                t_raw = int(f.read().strip())
+            if t_raw > 1000:  # millidegrees
+                cpu_temp = max(cpu_temp, t_raw // 1000)
+            else:
+                cpu_temp = max(cpu_temp, t_raw)
+        # Try hwmon as fallback
+        if cpu_temp == 0:
+            for hf in glob.glob('/sys/class/hwmon/hwmon*/temp1_input'):
+                with open(hf) as f:
+                    t_raw = int(f.read().strip())
+                cpu_temp = max(cpu_temp, t_raw // 1000)
     except Exception:
         pass
 
@@ -508,10 +655,15 @@ def get_status():
         },
         "brightness": br_pct,
         "cpu": cpu_pct,
+        "cpu_temp": cpu_temp,
         "mem": {
             "used": mem_used,
             "total": mem_total,
             "percent": mem_pct
+        },
+        "swap": {
+            "used": swap_used,
+            "percent": swap_pct
         }
     }
 
@@ -617,7 +769,11 @@ def main():
     elif cmd == "launch-app" and len(sys.argv) > 2:
         exec_cmd = sys.argv[2]
         try:
-            subprocess.Popen(exec_cmd, shell=True, start_new_session=True)
+            # Launched apps must not inherit Quickshell's stdout pipe: it closes as soon
+            # as this script exits, and Electron apps crash with EPIPE when they log.
+            subprocess.Popen(exec_cmd, shell=True, start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
             print(json.dumps({"status": "ok", "exec": exec_cmd}))
         except Exception as e:
             print(json.dumps({"status": "error", "message": str(e)}))
@@ -647,8 +803,17 @@ def main():
         subprocess.Popen(['nmcli', 'dev', 'wifi', 'connect', ssid])
         print(json.dumps({"status": "connecting", "ssid": ssid}))
 
+    elif cmd == "launch-terminal" and len(sys.argv) > 2:
+        cmd_args = sys.argv[2:]
+        term = launch_terminal(cmd_args)
+        print(json.dumps({"status": "ok", "terminal": term, "cmd": cmd_args}))
+
+    elif cmd == "weather":
+        print(json.dumps(get_weather()))
+
     elif cmd == "disconnect-wifi":
-        subprocess.run(['nmcli', 'dev', 'disconnect', 'wlan0'], capture_output=True)
+        wdev = get_wifi_device()
+        subprocess.run(['nmcli', 'dev', 'disconnect', wdev], capture_output=True)
         print(json.dumps(get_status()))
 
     elif cmd == "toggle-bt":
@@ -668,10 +833,12 @@ def main():
         print(json.dumps(get_status()))
 
     elif cmd == "open-bt-manager":
-        if os.path.exists('/usr/bin/blueman-manager'):
-            subprocess.Popen(['blueman-manager'])
+        if shutil.which('blueman-manager'):
+            subprocess.Popen(['blueman-manager'], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            subprocess.Popen(['kitty', '-e', 'bluetoothctl'])
+            launch_terminal(['bluetoothctl'])
+        print(json.dumps({"status": "ok"}))
 
     elif cmd == "set-brightness" and len(sys.argv) > 2:
         val = max(1, min(100, int(sys.argv[2])))
@@ -710,7 +877,15 @@ def main():
     elif cmd == "power-action" and len(sys.argv) > 2:
         action = sys.argv[2]
         if action == "lock":
-            subprocess.Popen(['swaylock', '-f'])
+            locker = os.environ.get("LOCKER")
+            if locker and shutil.which(locker):
+                subprocess.Popen([locker], start_new_session=True)
+            elif shutil.which('swaylock'):
+                subprocess.Popen(['swaylock', '-f'], start_new_session=True)
+            elif shutil.which('hyprlock'):
+                subprocess.Popen(['hyprlock'], start_new_session=True)
+            elif shutil.which('waylock'):
+                subprocess.Popen(['waylock'], start_new_session=True)
         elif action == "sleep":
             subprocess.Popen(['systemctl', 'suspend'])
         elif action == "reboot":
@@ -718,6 +893,21 @@ def main():
         elif action == "poweroff":
             subprocess.Popen(['systemctl', 'poweroff'])
         print(json.dumps({"status": "ok", "action": action}))
+
+    elif cmd == "caffeine-status":
+        # Check if inhibitor is active
+        res = subprocess.run("pgrep -f 'systemd-inhibit.*simple-bar-caffeine'", shell=True, capture_output=True)
+        active = res.returncode == 0
+        print(json.dumps({"active": active}))
+
+    elif cmd == "caffeine-toggle":
+        res = subprocess.run("pgrep -f 'systemd-inhibit.*simple-bar-caffeine'", shell=True, capture_output=True)
+        if res.returncode == 0:
+            subprocess.run("pkill -f 'systemd-inhibit.*simple-bar-caffeine'", shell=True)
+            print(json.dumps({"active": False}))
+        else:
+            subprocess.Popen("systemd-inhibit --what=idle:sleep --who=simple-bar-caffeine --why='User requested caffeine' sleep infinity", shell=True, start_new_session=True)
+            print(json.dumps({"active": True}))
 
 if __name__ == "__main__":
     main()

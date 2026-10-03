@@ -6,11 +6,33 @@ import Quickshell.Wayland
 import Quickshell.Io
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
+import Quickshell.Services.Notifications
+import Quickshell.Services.SystemTray
+import Quickshell.Services.Mpris
+import Quickshell.Widgets
 
 ShellRoot {
     id: root
 
-    // Active flyout state: "", "wifi", "battery", "calendar", "apps"
+    // Notification Server (Single instance at ShellRoot outside per-screen Variants)
+    NotificationServer {
+        id: notifServer
+        keepOnReload: true
+        actionsSupported: true
+        imageSupported: true
+        bodyMarkupSupported: true
+        persistenceSupported: true
+        onNotification: n => {
+            n.tracked = true
+            root.recordNotificationTimestamp(n.id)
+            root.hasUnreadNotifications = true
+            if (!root.isDndActive) {
+                root.pushToast(n)
+            }
+        }
+    }
+
+    // Active flyout state: "", "wifi", "battery", "calendar", "apps", "clipboard", "notifications"
     property string activePopup: ""
 
     // Smooth popup dismissal state
@@ -97,25 +119,158 @@ ShellRoot {
         }
     }
 
-    // IPC Handler to control bar position
+    // IPC Handler to control bar position and bar-workspaces
     IpcHandler {
         target: "bar"
         function setTop(): void { root.setBarPosition("top") }
         function setBottom(): void { root.setBarPosition("bottom") }
+        function nextWorkspace(): void { root.nextBarWorkspace() }
+        function prevWorkspace(): void { root.prevBarWorkspace() }
+        function setWorkspace(idx: int): void { root.setBarWorkspace(idx) }
+    }
+
+    // IPC Handler for notifications
+    IpcHandler {
+        target: "notifications"
+        function toggle() { root.togglePopup("notifications") }
+        function open() { root.openPopup("notifications") }
+        function close() { root.closePopup(false) }
+        function clearAll() {
+            let items = notifServer.trackedNotifications.values
+            for (let i = 0; i < items.length; i++) {
+                items[i].dismiss()
+            }
+            root.hasUnreadNotifications = false
+        }
+    }
+
+    // Notification timestamps & unread state
+    property var notifTimestamps: ({})
+    function recordNotificationTimestamp(id) {
+        let map = Object.assign({}, root.notifTimestamps)
+        map[id] = Date.now()
+        root.notifTimestamps = map
+    }
+    function getNotificationTimeAgo(id) {
+        let ts = root.notifTimestamps[id]
+        if (!ts) return "Just now"
+        let sec = Math.floor((Date.now() - ts) / 1000)
+        if (sec < 60) return "Just now"
+        let min = Math.floor(sec / 60)
+        if (min < 60) return `${min}m ago`
+        let hr = Math.floor(min / 60)
+        if (hr < 24) return `${hr}h ago`
+        return `${Math.floor(hr / 24)}d ago`
+    }
+    property bool hasUnreadNotifications: false
+    property bool isDndActive: false
+
+    // In-Pill Notification Toast State
+    property var toastQueue: []
+    property var currentToast: null
+    property bool isToastActive: false
+
+    Timer {
+        id: toastTimer
+        interval: 5000
+        repeat: false
+        onTriggered: root.dismissCurrentToast()
+    }
+
+    function pushToast(n) {
+        if (!n) return
+        toastQueue.push(n)
+        if (!root.isToastActive && !root.isActionActive && !root.showingWorkspaces) {
+            showNextToast()
+        }
+    }
+
+    function showNextToast() {
+        if (toastQueue.length === 0) {
+            root.isToastActive = false
+            root.currentToast = null
+            return
+        }
+        root.currentToast = toastQueue.shift()
+        root.isToastActive = true
+        toastTimer.stop()
+        if (root.currentToast.urgency !== NotificationUrgency.Critical) {
+            let timeout = root.currentToast.expireTimeout
+            toastTimer.interval = (timeout && timeout > 0) ? timeout : 5000
+            toastTimer.restart()
+        }
+    }
+
+    function dismissCurrentToast() {
+        toastTimer.stop()
+        root.isToastActive = false
+        root.currentToast = null
+        if (toastQueue.length > 0) {
+            showNextToast()
+        }
     }
 
     // Bar side position: "top" or "bottom"
     property string barPosition: "top"
+
+    // ─────────────────────────────────────────────────────────────────
+    // BAR-WORKSPACES (Switchable Bar Modes akin to Niri workspaces)
+    // 0: Overview (Primary Bar)
+    // 1: Media (MPRIS Music & Playback)
+    // 2: Hardware (CPU, RAM, Battery, Thermals, Controls)
+    // 3: Workspaces (Dedicated Niri Workspaces & Active Tasks)
+    // ─────────────────────────────────────────────────────────────────
+    property int barWorkspaceIndex: 0
+    readonly property int barWorkspaceCount: 4
+
+    // Cooldown / debounce no longer needed (keybind-only navigation)
+    property real lastBarScrollTime: 0  // kept for safe binding reference, not used
+
+    function nextBarWorkspace() {
+        setBarWorkspace((root.barWorkspaceIndex + 1) % root.barWorkspaceCount)
+    }
+
+    function prevBarWorkspace() {
+        setBarWorkspace((root.barWorkspaceIndex - 1 + root.barWorkspaceCount) % root.barWorkspaceCount)
+    }
+
+    function setBarWorkspace(idx) {
+        if (idx < 0) idx = 0
+        if (idx >= root.barWorkspaceCount) idx = root.barWorkspaceCount - 1
+        if (root.barWorkspaceIndex !== idx) {
+            root.barWorkspaceIndex = idx
+        }
+    }
+
+    // MPRIS Active Player Tracker
+    readonly property var activeMprisPlayer: {
+        try {
+            let list = Mpris.players.values
+            if (!list || list.length === 0) return null
+            for (let i = 0; i < list.length; i++) {
+                if (list[i] && list[i].isPlaying) return list[i]
+            }
+            return list[0]
+        } catch (e) {
+            return null
+        }
+    }
 
     // Workspace change indicator transient state
     property bool showingWorkspaces: false
     Timer {
         id: wsIndicatorTimer
         interval: 700
-        onTriggered: root.showingWorkspaces = false
+        onTriggered: {
+            root.showingWorkspaces = false
+            if (root.isToastActive && root.currentToast && root.currentToast.urgency !== NotificationUrgency.Critical) {
+                toastTimer.restart()
+            }
+        }
     }
 
     function triggerWorkspaceIndicator() {
+        if (root.isToastActive) toastTimer.stop()
         root.showingWorkspaces = true
         wsIndicatorTimer.restart()
     }
@@ -134,10 +289,14 @@ ShellRoot {
         onTriggered: {
             root.isActionActive = false
             root.actionType = ""
+            if (root.isToastActive && root.currentToast && root.currentToast.urgency !== NotificationUrgency.Critical) {
+                toastTimer.restart()
+            }
         }
     }
 
     function showAction(type, icon, text, percent, color) {
+        if (root.isToastActive) toastTimer.stop()
         root.actionType = type
         root.actionIcon = icon
         root.actionText = text
@@ -182,6 +341,67 @@ ShellRoot {
         if (str.includes("chat") || str.includes("discord") || str.includes("telegram") || str.includes("slack")) return "󰭹"
         if (str.includes("game") || str.includes("steam")) return "󰊖"
         return "󰀻"
+    }
+
+    function getWeatherIcon(code, isDay) {
+        if (code === 0) return isDay ? "󰖙" : "󰖔"
+        if (code === 1 || code === 2) return isDay ? "󰖕" : "󰼱"
+        if (code === 3) return "󰖐"
+        if (code === 45 || code === 48) return "󰖑"
+        if (code >= 51 && code <= 67) return "󰖗"
+        if (code >= 71 && code <= 77) return "󰖘"
+        if (code >= 80 && code <= 82) return "󰖖"
+        if (code >= 95) return "󰖓"
+        return isDay ? "󰖙" : "󰖔"
+    }
+
+    function getNotificationIcon(notif) {
+        if (!notif) return ""
+        if (notif.image && typeof notif.image === "string" && notif.image !== "") {
+            return notif.image.startsWith("/") ? ("file://" + notif.image) : notif.image
+        }
+        if (notif.appIcon && typeof notif.appIcon === "string" && notif.appIcon !== "") {
+            if (notif.appIcon.startsWith("/")) return "file://" + notif.appIcon
+            if (notif.appIcon.startsWith("file://")) return notif.appIcon
+        }
+        let keys = []
+        if (notif.desktopEntry) keys.push(notif.desktopEntry.toLowerCase())
+        if (notif.appIcon) keys.push(notif.appIcon.toLowerCase())
+        if (notif.appName) {
+            keys.push(notif.appName.toLowerCase())
+            keys.push(notif.appName.toLowerCase().replace(/\s+/g, "-"))
+            keys.push(notif.appName.toLowerCase().replace(/\s+/g, "_"))
+        }
+        // 1. Try matching against appsList icon_path
+        if (sysStats.appsList && sysStats.appsList.length > 0) {
+            for (let k = 0; k < keys.length; k++) {
+                let key = keys[k]
+                if (!key) continue
+                for (let i = 0; i < sysStats.appsList.length; i++) {
+                    let app = sysStats.appsList[i]
+                    let aPath = app.icon_path || ""
+                    if (!aPath || !aPath.startsWith("/")) continue
+                    let aName = (app.name || "").toLowerCase()
+                    let aExec = (app.exec || "").toLowerCase()
+                    let aIcon = (app.icon || "").toLowerCase()
+                    if (aName === key || aIcon === key || aExec.includes(key)) {
+                        return "file://" + aPath
+                    }
+                }
+            }
+        }
+        // 2. Try Quickshell.iconPath
+        for (let k = 0; k < keys.length; k++) {
+            let key = keys[k]
+            if (!key) continue
+            try {
+                let p = Quickshell.iconPath(key, true)
+                if (p && p !== "" && p.startsWith("/")) {
+                    return "file://" + p
+                }
+            } catch (e) {}
+        }
+        return ""
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -250,9 +470,13 @@ ShellRoot {
         property int brightness: 50
         property string cpuUsage: "0%"
         property real cpuPercent: 0.0
+        property int cpuTemp: 45
         property string memUsedStr: "0.0 GB"
         property string memTotalStr: "0.0 GB"
         property real memPercent: 0.0
+        property string swapUsedStr: "0.0 GB"
+        property real swapPercent: 0.0
+        property bool caffeineActive: false
 
         property string scriptPath: Qt.resolvedUrl("scripts/control.py").toString().replace(/^file:\/\//, "")
 
@@ -320,10 +544,17 @@ ShellRoot {
                             sysStats.cpuUsage = `${data.cpu}%`
                             sysStats.cpuPercent = Math.min(1.0, data.cpu / 100.0)
                         }
+                        if (data.cpu_temp !== undefined) {
+                            sysStats.cpuTemp = data.cpu_temp
+                        }
                         if (data.mem) {
                             sysStats.memUsedStr = data.mem.used || "0 GB"
                             sysStats.memTotalStr = data.mem.total || "0 GB"
                             sysStats.memPercent = data.mem.percent || 0.0
+                        }
+                        if (data.swap) {
+                            sysStats.swapUsedStr = data.swap.used || "0 GB"
+                            sysStats.swapPercent = data.swap.percent || 0.0
                         }
                     } catch (e) {}
                 }
@@ -502,6 +733,48 @@ ShellRoot {
             root.triggerBrightnessFeedback()
         }
 
+        // Caffeine worker
+        property Process caffeineProc: Process {
+            id: caffeineProc
+            property bool isToggling: false
+            command: ["python3", sysStats.scriptPath, "caffeine-status"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let res = JSON.parse(text)
+                        if (res.active !== undefined) {
+                            sysStats.caffeineActive = res.active
+                            if (caffeineProc.isToggling) {
+                                caffeineProc.isToggling = false
+                                Quickshell.execDetached([
+                                    "notify-send",
+                                    "-a", "Caffeine",
+                                    "-i", res.active ? "caffeine" : "caffeine-off",
+                                    res.active ? "Caffeine Enabled" : "Caffeine Disabled",
+                                    res.active ? "Screen sleep and idle timeout are inhibited." : "Screen sleep and idle timeout are restored."
+                                ])
+                            }
+                        }
+                    } catch (e) {
+                        caffeineProc.isToggling = false
+                    }
+                }
+            }
+        }
+
+        function checkCaffeine() {
+            if (!caffeineProc.running) {
+                caffeineProc.command = ["python3", sysStats.scriptPath, "caffeine-status"]
+                caffeineProc.running = true
+            }
+        }
+
+        function toggleCaffeine() {
+            caffeineProc.isToggling = true
+            caffeineProc.command = ["python3", sysStats.scriptPath, "caffeine-toggle"]
+            caffeineProc.running = true
+        }
+
         // Hardware workers
         property Process volProc: Process {}
         property Process brProc: Process {}
@@ -522,9 +795,43 @@ ShellRoot {
             onTriggered: sysStats.commitBrightness()
         }
 
+        // Weather Data & Fetcher
+        property string weatherTemp: "--°C"
+        property int weatherCode: 0
+        property int weatherIsDay: 1
+        property string weatherDesc: "Loading..."
+
+        property Process weatherProc: Process {
+            id: weatherProc
+            command: ["python3", sysStats.scriptPath, "weather"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let data = JSON.parse(text)
+                        if (data.temp) sysStats.weatherTemp = data.temp
+                        if (data.code !== undefined) sysStats.weatherCode = data.code
+                        if (data.is_day !== undefined) sysStats.weatherIsDay = data.is_day
+                        if (data.desc) sysStats.weatherDesc = data.desc
+                    } catch(e) {}
+                }
+            }
+        }
+
+        property Timer weatherTimer: Timer {
+            interval: 900000
+            running: true
+            repeat: true
+            onTriggered: sysStats.refreshWeather()
+        }
+
+        function refreshWeather() {
+            if (!weatherProc.running) weatherProc.running = true
+        }
+
         Component.onCompleted: {
             sysStats.refresh()
             sysStats.loadApps()
+            sysStats.refreshWeather()
         }
     }
 
@@ -571,6 +878,7 @@ ShellRoot {
                     onClicked: root.closePopup(false)
                 }
 
+
                 // ─────────────────────────────────────────────────────────────
                 // UNIFIED PILL CLUSTER: Center Pill + Revealable Status Balls
                 // ─────────────────────────────────────────────────────────────
@@ -586,7 +894,7 @@ ShellRoot {
 
                     property bool isHovered: false
                     // Balls collapse when workspaces are actively switching or popup is open
-                    readonly property bool showBalls: (isHovered || (root.activePopup !== "" && !centerPill.hasOpenPanel)) && !root.showingWorkspaces && !centerPill.hasOpenPanel && !root.isActionActive && !root.isPopupClosing
+                    readonly property bool showBalls: root.barWorkspaceIndex === 0 && (isHovered || (root.activePopup !== "" && !centerPill.hasOpenPanel)) && !root.showingWorkspaces && !centerPill.hasOpenPanel && !root.isActionActive && !root.isToastActive && !root.isPopupClosing
 
                     Connections {
                         target: root
@@ -631,7 +939,7 @@ ShellRoot {
                         border.color: "transparent"
 
                         // When a panel popup is open, expand to match it for the "unified bar" effect
-                        readonly property bool hasOpenPanel: (root.activePopup === "apps" || root.activePopup === "clipboard") && !root.isPopupClosing
+                        readonly property bool hasOpenPanel: root.activePopup !== "" && !root.isPopupClosing
                         readonly property int panelWidth: 560
 
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -639,11 +947,35 @@ ShellRoot {
                         anchors.top: (hasOpenPanel && root.barPosition === "bottom") ? parent.top : undefined
                         anchors.bottom: (hasOpenPanel && root.barPosition === "top") ? parent.bottom : undefined
 
+                        // Width of active bar-workspace
+                        readonly property int currentBarWorkspaceWidth: {
+                            switch (root.barWorkspaceIndex) {
+                                case 0: return pillContentRow.implicitWidth
+                                case 1: return statusWorkspaceRow.implicitWidth
+                                case 2: return mediaWorkspaceRow.implicitWidth
+                                case 3: return sysresWorkspaceRow.implicitWidth
+                                default: return pillContentRow.implicitWidth
+                            }
+                        }
+
+                        // Tracks toast content width even when container is hidden (invisible → implicitWidth = 0)
+                        property int toastContentWidth: 260
+
                         width: root.showingWorkspaces ? (workspacesRow.implicitWidth + 32)
                                : (root.isActionActive ? (actionRow.implicitWidth + 36)
+                               : (root.isToastActive ? (toastContentWidth + 36)
                                : (hasOpenPanel ? panelWidth
-                               : (Math.max(pillContentRow.width, pillContentRow.implicitWidth) + 36)))
+                               : (currentBarWorkspaceWidth + 24))))
                         height: hasOpenPanel ? theme.barHeight : theme.pillHeight
+
+                        property bool isPillHovered: false
+                        HoverHandler {
+                            id: centerPillHover
+                            onHoveredChanged: centerPill.isPillHovered = hovered
+                        }
+
+                        readonly property bool showLauncherBtn: root.activePopup === "apps"
+                        readonly property bool hasFocusedApp: (sysStats.focusedAppName !== "" || sysStats.focusedApp !== "") && sysStats.focusedApp.toLowerCase() !== "desktop"
 
                         // When panel extends below, flatten bottom corners; when extends above, flatten top corners
                         readonly property bool panelBelow: hasOpenPanel && root.barPosition === "top"
@@ -664,177 +996,1276 @@ ShellRoot {
                         }
 
                         // ─────────────────────────────────────────────────────
-                        // A. HORIZONTAL BAR CONTENT
+                        // A. HORIZONTAL BAR CONTENT (Switchable Bar-Workspaces)
                         // ─────────────────────────────────────────────────────
                         Item {
                             anchors.fill: parent
 
-                            // 1. Normal View (Clock, Date, Focused App / Action indicator)
-                            Row {
-                                id: pillContentRow
-                                anchors.centerIn: parent
-                                spacing: 8
-                                visible: !root.showingWorkspaces && !root.isActionActive
-                                opacity: visible ? 1.0 : 0.0
-
-                                // Interactive Clock + Date Button
-                                Rectangle {
-                                    id: clockArea
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    height: 26
-                                    radius: 13
-                                    color: clockMouse.containsMouse || root.activePopup === "calendar" ? theme.surfaceHover : "transparent"
-                                    border.width: 0
-                                    width: clockRow.implicitWidth + 12
-
-                                    RowLayout {
-                                        id: clockRow
-                                        anchors.centerIn: parent
-                                        spacing: 8
-
-                                        Text {
-                                            id: clockTime
-                                            text: Qt.formatDateTime(new Date(), "hh:mm A")
-                                            font.pixelSize: 13
-                                            font.weight: Font.DemiBold
-                                            color: theme.text
-
-                                            Timer {
-                                                interval: 1000
-                                                running: true
-                                                repeat: true
-                                                onTriggered: clockTime.text = Qt.formatDateTime(new Date(), "hh:mm A")
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            width: 4; height: 4; radius: 2; color: theme.textMuted
-                                        }
-
-                                        Text {
-                                            id: clockDate
-                                            text: Qt.formatDateTime(new Date(), "ddd, MMM d")
-                                            font.pixelSize: 12
-                                            font.weight: Font.Normal
-                                            color: theme.textMuted
-
-                                            Timer {
-                                                interval: 60000
-                                                running: true
-                                                repeat: true
-                                                onTriggered: clockDate.text = Qt.formatDateTime(new Date(), "ddd, MMM d")
-                                            }
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: clockMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.togglePopup("calendar")
-                                    }
+                            // ─────────────────────────────────────────────────
+                            // 1. BAR-WORKSPACE 0: PRIMARY OVERVIEW
+                            // ─────────────────────────────────────────────────
+                            Item {
+                                id: ws0Overview
+                                anchors.fill: parent
+                                visible: opacity > 0.01
+                                opacity: (root.barWorkspaceIndex === 0 && !root.showingWorkspaces && !root.isActionActive && !root.isToastActive) ? 1.0 : 0.0
+                                transform: Translate {
+                                    x: root.barWorkspaceIndex === 0 ? 0 : (root.barWorkspaceIndex > 0 ? -16 : 16)
+                                    Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                                 }
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
 
-                                // Separator (only visible when appBadge is visible)
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 1; height: 14; color: theme.borderLight
-                                    visible: appBadge.shouldShow
-                                }
+                                Row {
+                                    id: pillContentRow
+                                    anchors.centerIn: parent
+                                    spacing: 8
 
-                                // Focused App / Launcher / Clipboard area (hides Desktop button when on desktop)
-                                Rectangle {
-                                    id: appBadge
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    height: 26
-                                    radius: 13
-                                    color: (appBadgeMouse.containsMouse || root.activePopup === "apps" || root.activePopup === "clipboard") ? theme.surfaceHover : "transparent"
-                                    border.width: 0
-
-                                    readonly property bool hasFocusedApp: (sysStats.focusedAppName !== "" || sysStats.focusedApp !== "") && sysStats.focusedApp.toLowerCase() !== "desktop"
-                                    readonly property bool isLauncherHovered: appBadgeMouse.containsMouse || (root.activePopup === "apps" && !root.isPopupClosing)
-                                    readonly property bool isClipboard: (root.activePopup === "clipboard" && !root.isPopupClosing)
-                                    readonly property bool shouldShow: hasFocusedApp || isLauncherHovered || isClipboard
-
-                                    visible: shouldShow
-                                    width: shouldShow ? (appBadgeRow.width + 20) : 0
-                                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                                    clip: true
-
+                                    // LEFT SECTION: Fixed Launcher (Hover only) & Focused App
                                     Row {
-                                        id: appBadgeRow
-                                        anchors.centerIn: parent
+                                        id: leftSection
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 6
+                                        visible: centerPill.hasFocusedApp || centerPill.showLauncherBtn
+
+                                        // Fixed 26x26 Launcher Button (Revealed only on hover or apps popup)
+                                        Rectangle {
+                                            id: launcherBtn
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: centerPill.showLauncherBtn ? 26 : 0
+                                            height: 26
+                                            radius: 13
+                                            clip: true
+                                            visible: width > 0
+                                            opacity: centerPill.showLauncherBtn ? 1.0 : 0.0
+                                            color: (launcherMouse.containsMouse || root.activePopup === "apps" || root.activePopup === "clipboard") ? theme.surfaceHover : "transparent"
+                                            border.width: 0
+
+                                            Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: root.activePopup === "clipboard" ? "󰅍" : "󰀻"
+                                                font.pixelSize: 14
+                                                color: (root.activePopup === "apps" || root.activePopup === "clipboard") ? theme.accent : theme.text
+                                            }
+
+                                            MouseArea {
+                                                id: launcherMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.togglePopup("apps")
+                                            }
+                                        }
+
+                                        // Separator between launcherBtn and focusedAppBtn
+                                        Rectangle {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: (centerPill.showLauncherBtn && centerPill.hasFocusedApp) ? 1 : 0
+                                            height: 14
+                                            color: theme.borderLight
+                                            visible: width > 0
+                                            opacity: (centerPill.showLauncherBtn && centerPill.hasFocusedApp) ? 1.0 : 0.0
+
+                                            Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            Behavior on opacity { NumberAnimation { duration: 140 } }
+                                        }
+
+                                        // Stable Focused App Button
+                                        Rectangle {
+                                            id: focusedAppBtn
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            height: 26
+                                            radius: 13
+                                            color: appBtnMouse.containsMouse || root.activePopup === "appcontext" ? theme.surfaceHover : "transparent"
+                                            border.width: 0
+
+                                            visible: centerPill.hasFocusedApp
+                                            width: centerPill.hasFocusedApp ? (appRow.implicitWidth + 14) : 0
+                                            clip: true
+
+                                            Row {
+                                                id: appRow
+                                                anchors.centerIn: parent
+                                                spacing: 6
+
+                                                // Icon only visible when hovered (or app context menu open)
+                                                Item {
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    width: (centerPill.isPillHovered || root.activePopup === "appcontext") ? 16 : 0
+                                                    height: 16
+                                                    visible: width > 0
+                                                    clip: true
+                                                    Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                                    Image {
+                                                        id: appRealIcon
+                                                        anchors.fill: parent
+                                                        fillMode: Image.PreserveAspectFit
+                                                        source: sysStats.focusedAppIconPath ? ("file://" + sysStats.focusedAppIconPath) : ""
+                                                        visible: status === Image.Ready
+                                                        smooth: true
+                                                        mipmap: true
+                                                    }
+
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        visible: !appRealIcon.visible || appRealIcon.status !== Image.Ready
+                                                        text: root.getAppIcon(sysStats.focusedApp, sysStats.focusedAppName)
+                                                        font.pixelSize: 13
+                                                        color: theme.accent
+                                                    }
+                                                }
+
+                                                Text {
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: sysStats.focusedAppName || sysStats.focusedApp || ""
+                                                    font.pixelSize: 12
+                                                    font.weight: Font.DemiBold
+                                                    color: theme.text
+                                                    elide: Text.ElideRight
+                                                    width: Math.min(implicitWidth, 180)
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: appBtnMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.togglePopup("appcontext")
+                                            }
+                                        }
+                                    }
+
+                                    // Separator between leftSection and clockArea
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: (centerPill.hasFocusedApp || centerPill.showLauncherBtn) ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                    }
+
+                                    // CENTER SECTION: Clock & Date Button
+                                    Rectangle {
+                                        id: clockArea
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 26
+                                        radius: 13
+                                        color: clockMouse.containsMouse || root.activePopup === "calendar" ? theme.surfaceHover : "transparent"
+                                        border.width: 0
+                                        width: clockRow.implicitWidth + 12
+
+                                        RowLayout {
+                                            id: clockRow
+                                            anchors.centerIn: parent
+                                            spacing: 8
+
+                                            Text {
+                                                id: clockTime
+                                                text: Qt.formatDateTime(new Date(), "hh:mm A")
+                                                font.pixelSize: 13
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+
+                                                Timer {
+                                                    interval: 1000
+                                                    running: true
+                                                    repeat: true
+                                                    onTriggered: clockTime.text = Qt.formatDateTime(new Date(), "hh:mm A")
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                width: 4; height: 4; radius: 2; color: theme.textMuted
+                                            }
+
+                                            Text {
+                                                id: clockDate
+                                                text: Qt.formatDateTime(new Date(), "ddd, MMM d")
+                                                font.pixelSize: 12
+                                                font.weight: Font.Normal
+                                                color: theme.textMuted
+
+                                                Timer {
+                                                    interval: 60000
+                                                    running: true
+                                                    repeat: true
+                                                    onTriggered: clockDate.text = Qt.formatDateTime(new Date(), "ddd, MMM d")
+                                                }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: clockMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("calendar")
+                                        }
+                                    }
+
+                                    // Separator between clockArea and rightSection (Seamless, no dead space)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 1; height: 14; color: theme.borderLight
+                                    }
+
+                                    // RIGHT SECTION: Weather/Tray Slot & Bell
+                                    Row {
+                                        id: rightSection
+                                        anchors.verticalCenter: parent.verticalCenter
                                         spacing: 6
 
-                                        // Unified icon container
+                                        // Weather / System Tray Slot
                                         Item {
+                                            id: weatherTraySlot
                                             anchors.verticalCenter: parent.verticalCenter
-                                            width: 16; height: 16
+                                            height: 26
 
-                                            // 1. Clipboard icon
-                                            Text {
-                                                anchors.centerIn: parent
-                                                visible: appBadge.isClipboard
-                                                text: "󰅍"
-                                                font.pixelSize: 14
-                                                color: theme.accent
+                                            property bool isSlotHovered: false
+                                            property bool trayMenuOpen: false
+
+                                            readonly property bool showTray: (isSlotHovered || trayMenuOpen) && SystemTray.items.length > 0
+
+                                            width: showTray ? (trayRow.implicitWidth + 8) : (weatherView.implicitWidth + 8)
+                                            Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                            Timer {
+                                                id: slotCollapseTimer
+                                                interval: 250
+                                                onTriggered: {
+                                                    if (!slotHover.hovered && !weatherTraySlot.trayMenuOpen) {
+                                                        weatherTraySlot.isSlotHovered = false
+                                                    }
+                                                }
                                             }
 
-                                            // 2. Launcher icon
-                                            Text {
-                                                anchors.centerIn: parent
-                                                visible: appBadge.isLauncherHovered && !appBadge.isClipboard
-                                                text: "󰀻"
-                                                font.pixelSize: 14
-                                                color: theme.accent
+                                            HoverHandler {
+                                                id: slotHover
+                                                onHoveredChanged: {
+                                                    if (hovered) {
+                                                        slotCollapseTimer.stop()
+                                                        weatherTraySlot.isSlotHovered = true
+                                                    } else {
+                                                        slotCollapseTimer.restart()
+                                                    }
+                                                }
                                             }
 
-                                            // 3. Real App Icon (Image or Nerd Font fallback)
-                                            Image {
-                                                id: appRealIcon
+                                            // Weather View (Default)
+                                            RowLayout {
+                                                id: weatherView
+                                                anchors.centerIn: parent
+                                                spacing: 5
+                                                opacity: weatherTraySlot.showTray ? 0.0 : 1.0
+                                                visible: opacity > 0.01
+                                                Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                                Text {
+                                                    text: root.getWeatherIcon(sysStats.weatherCode, sysStats.weatherIsDay)
+                                                    font.pixelSize: 13
+                                                    color: theme.accent
+                                                }
+                                                Text {
+                                                    text: sysStats.weatherTemp
+                                                    font.pixelSize: 12
+                                                    font.weight: Font.DemiBold
+                                                    color: theme.text
+                                                }
+                                            }
+
+                                            // System Tray Row (Revealed on hover)
+                                            Row {
+                                                id: trayRow
+                                                anchors.centerIn: parent
+                                                spacing: 6
+                                                opacity: weatherTraySlot.showTray ? 1.0 : 0.0
+                                                visible: opacity > 0.01
+                                                Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                                Repeater {
+                                                    model: SystemTray.items
+
+                                                    delegate: Item {
+                                                        required property var modelData
+                                                        width: 20
+                                                        height: 20
+
+                                                        IconImage {
+                                                            anchors.centerIn: parent
+                                                            width: 16
+                                                            height: 16
+                                                            source: modelData.icon
+                                                        }
+
+                                                        // Needs attention dot
+                                                        Rectangle {
+                                                            width: 4; height: 4; radius: 2
+                                                            color: theme.warning
+                                                            anchors.top: parent.top
+                                                            anchors.right: parent.right
+                                                            visible: modelData.status === Status.NeedsAttention
+                                                        }
+
+                                                        QsMenuAnchor {
+                                                            id: trayMenu
+                                                            menu: modelData.menu
+                                                            anchor.window: barWindow
+                                                            onClosed: {
+                                                                weatherTraySlot.trayMenuOpen = false
+                                                                slotCollapseTimer.restart()
+                                                            }
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                                                            cursorShape: Qt.PointingHandCursor
+
+                                                            onWheel: wheel => {
+                                                                wheel.accepted = true
+                                                                modelData.scroll(wheel.angleDelta.y, false)
+                                                            }
+
+                                                            onClicked: mouse => {
+                                                                if (mouse.button === Qt.LeftButton) {
+                                                                    if (modelData.onlyMenu) {
+                                                                        weatherTraySlot.trayMenuOpen = true
+                                                                        trayMenu.open()
+                                                                    } else {
+                                                                        modelData.activate()
+                                                                    }
+                                                                } else if (mouse.button === Qt.RightButton) {
+                                                                    if (modelData.menu) {
+                                                                        weatherTraySlot.trayMenuOpen = true
+                                                                        trayMenu.open()
+                                                                    }
+                                                                } else if (mouse.button === Qt.MiddleButton) {
+                                                                    modelData.secondaryActivate()
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Separator before Bell
+                                        Rectangle {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 1; height: 14; color: theme.borderLight
+                                        }
+
+                                        // Fixed 26x26 Notification Bell Button
+                                        Rectangle {
+                                            id: bellBtn
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 26; height: 26; radius: 13
+                                            color: (bellMouse.containsMouse || root.activePopup === "notifications") ? theme.surfaceHover : "transparent"
+                                            border.width: 0
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: root.isDndActive ? "󰂛" : (root.hasUnreadNotifications ? "󱅫" : "󰂚")
+                                                font.pixelSize: 14
+                                                color: root.isDndActive ? theme.warning : (root.hasUnreadNotifications ? theme.accent : theme.textMuted)
+                                            }
+
+                                            // Unread indicator dot
+                                            Rectangle {
+                                                width: 5; height: 5; radius: 2.5
+                                                color: theme.accent
+                                                anchors.top: parent.top; anchors.topMargin: 3
+                                                anchors.right: parent.right; anchors.rightMargin: 3
+                                                visible: root.hasUnreadNotifications && !root.isDndActive
+                                            }
+
+                                            MouseArea {
+                                                id: bellMouse
                                                 anchors.fill: parent
-                                                fillMode: Image.PreserveAspectFit
-                                                source: sysStats.focusedAppIconPath ? ("file://" + sysStats.focusedAppIconPath) : ""
-                                                visible: !appBadge.isLauncherHovered && !appBadge.isClipboard && status === Image.Ready
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    root.hasUnreadNotifications = false
+                                                    root.togglePopup("notifications")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Separator before pager dots (only when hovered)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: centerPill.isPillHovered ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on width { NumberAnimation { duration: 140 } }
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    }
+
+                                    // Mini Bar-Workspace Pager Indicator (only when hovered)
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        visible: opacity > 0.01
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                        Repeater {
+                                            model: root.barWorkspaceCount
+                                            delegate: Rectangle {
+                                                required property int index
+                                                readonly property bool isActive: root.barWorkspaceIndex === index
+                                                width: isActive ? 12 : 4
+                                                height: 4
+                                                radius: 2
+                                                color: isActive ? theme.accent : (p0Mouse.containsMouse ? theme.text : theme.borderLight)
+
+                                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Behavior on color { ColorAnimation { duration: 140 } }
+
+                                                MouseArea {
+                                                    id: p0Mouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.setBarWorkspace(index)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ─────────────────────────────────────────────────
+                            // 2. BAR-WORKSPACE 1: STATUS & CONTROLS (Wi-Fi, BT, Caffeine, Battery, Brightness, Volume)
+                            // ─────────────────────────────────────────────────
+                            Item {
+                                id: ws1Status
+                                anchors.fill: parent
+                                visible: opacity > 0.01
+                                opacity: (root.barWorkspaceIndex === 1 && !root.showingWorkspaces && !root.isActionActive && !root.isToastActive) ? 1.0 : 0.0
+                                transform: Translate {
+                                    x: root.barWorkspaceIndex === 1 ? 0 : (root.barWorkspaceIndex > 1 ? -16 : 16)
+                                    Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                }
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                Row {
+                                    id: statusWorkspaceRow
+                                    anchors.centerIn: parent
+                                    spacing: 8
+
+                                    // 1. Wi-Fi Control
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: wifiCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: wifiCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: wifiCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: !sysStats.wifiPowered ? "󰤭" : (sysStats.wifiConnected ? "󰤨" : "󰤩")
+                                                font.pixelSize: 13
+                                                color: sysStats.wifiConnected ? theme.accent : theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: !sysStats.wifiPowered ? "Off" : (sysStats.wifiConnected ? (sysStats.wifiSsid || "Connected") : "Disconnected")
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                                elide: Text.ElideRight
+                                                width: Math.min(implicitWidth, 90)
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: wifiCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("wifi")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 2. Bluetooth Control
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: btCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: btCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: btCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: !sysStats.btPowered ? "󰂲" : (sysStats.btConnected ? "󰂱" : "󰂯")
+                                                font.pixelSize: 13
+                                                color: sysStats.btConnected ? theme.accent : theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: !sysStats.btPowered ? "Off" : (sysStats.btConnected ? (sysStats.btDevice || "Connected") : "Disconnected")
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                                elide: Text.ElideRight
+                                                width: Math.min(implicitWidth, 90)
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: btCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("wifi")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 3. Caffeine Toggle
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: cafCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: cafCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: cafCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.caffeineActive ? "󰅶" : "󰾪"
+                                                font.pixelSize: 13
+                                                color: sysStats.caffeineActive ? theme.warning : theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: sysStats.caffeineActive ? "Caffeine On" : "Caffeine Off"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: cafCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.toggleCaffeine()
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 4. Battery Status
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: batCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: batCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: batCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: rightBall.charging ? "󰂄" : (rightBall.pctInt > 80 ? "󰁹" : (rightBall.pctInt > 50 ? "󰁾" : (rightBall.pctInt > 20 ? "󰁼" : "󰂃")))
+                                                font.pixelSize: 13
+                                                color: rightBall.charging ? theme.success : (rightBall.pctInt <= 20 ? theme.danger : theme.text)
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: `${rightBall.pctInt}%`
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: batCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("battery")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 5. Brightness
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: briCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: briCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: briCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰃠"
+                                                font.pixelSize: 13
+                                                color: theme.warning
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: `${sysStats.brightness}%`
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: briCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("battery")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 6. Volume
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: volCtrlMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: volCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: volCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.volumeMuted ? "󰖁" : (sysStats.volume > 50 ? "󰕾" : "󰖀")
+                                                font.pixelSize: 13
+                                                color: sysStats.volumeMuted ? theme.danger : theme.accent
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: sysStats.volumeMuted ? "Muted" : `${sysStats.volume}%`
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: volCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("battery")
+                                        }
+                                    }
+
+                                    // Separator before pager dots (only when hovered)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: centerPill.isPillHovered ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on width { NumberAnimation { duration: 140 } }
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    }
+
+                                    // Mini Bar-Workspace Pager Indicator (only when hovered)
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        visible: opacity > 0.01
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                        Repeater {
+                                            model: root.barWorkspaceCount
+                                            delegate: Rectangle {
+                                                required property int index
+                                                readonly property bool isActive: root.barWorkspaceIndex === index
+                                                width: isActive ? 12 : 4
+                                                height: 4
+                                                radius: 2
+                                                color: isActive ? theme.accent : (p1Mouse.containsMouse ? theme.text : theme.borderLight)
+
+                                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Behavior on color { ColorAnimation { duration: 140 } }
+
+                                                MouseArea {
+                                                    id: p1Mouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.setBarWorkspace(index)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ─────────────────────────────────────────────────
+                            // 3. BAR-WORKSPACE 2: MPRIS MEDIA PLAYER
+                            // ─────────────────────────────────────────────────
+                            Item {
+                                id: ws2Media
+                                anchors.fill: parent
+                                visible: opacity > 0.01
+                                opacity: (root.barWorkspaceIndex === 2 && !root.showingWorkspaces && !root.isActionActive && !root.isToastActive) ? 1.0 : 0.0
+                                transform: Translate {
+                                    x: root.barWorkspaceIndex === 2 ? 0 : (root.barWorkspaceIndex > 2 ? -16 : 16)
+                                    Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                }
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                Row {
+                                    id: mediaWorkspaceRow
+                                    anchors.centerIn: parent
+                                    spacing: 8
+
+                                    readonly property var player: root.activeMprisPlayer
+                                    readonly property bool hasMedia: player !== null
+
+                                    // Album Art or Media Icon
+                                    Item {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 22; height: 22
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 4
+                                            color: theme.surface
+                                            clip: true
+
+                                            Image {
+                                                id: mediaArtImg
+                                                anchors.fill: parent
+                                                fillMode: Image.PreserveAspectCrop
+                                                source: (mediaWorkspaceRow.hasMedia && mediaWorkspaceRow.player.trackArtUrl) ? mediaWorkspaceRow.player.trackArtUrl : ""
+                                                visible: status === Image.Ready
                                                 smooth: true
                                                 mipmap: true
                                             }
 
                                             Text {
                                                 anchors.centerIn: parent
-                                                visible: !appBadge.isLauncherHovered && !appBadge.isClipboard && (!appRealIcon.visible || appRealIcon.status !== Image.Ready)
-                                                text: root.getAppIcon(sysStats.focusedApp, sysStats.focusedAppName)
+                                                visible: !mediaArtImg.visible
+                                                text: mediaWorkspaceRow.hasMedia ? "󰎈" : "󰎊"
                                                 font.pixelSize: 13
-                                                color: theme.accent
+                                                color: mediaWorkspaceRow.hasMedia ? theme.accent : theme.textMuted
                                             }
-                                        }
-
-                                        // Text: context-aware label
-                                        Text {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: appBadge.isClipboard ? "Clipboard"
-                                                : (appBadge.isLauncherHovered ? "Launcher"
-                                                : (sysStats.focusedAppName || sysStats.focusedApp || ""))
-                                            font.pixelSize: 12
-                                            font.weight: Font.DemiBold
-                                            color: (appBadge.isLauncherHovered || appBadge.isClipboard) ? theme.accent : theme.text
-                                            elide: Text.ElideRight
                                         }
                                     }
 
-                                    MouseArea {
-                                        id: appBadgeMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.togglePopup("apps")
+                                    // Track Title & Artist
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: mediaWorkspaceRow.hasMedia ? (mediaWorkspaceRow.player.trackTitle || "Media Playing") : "No Media Active"
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            color: mediaWorkspaceRow.hasMedia ? theme.text : theme.textMuted
+                                            elide: Text.ElideRight
+                                            width: Math.min(implicitWidth, 180)
+                                        }
+
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: (mediaWorkspaceRow.hasMedia && mediaWorkspaceRow.player.trackArtist) ? `· ${mediaWorkspaceRow.player.trackArtist}` : ""
+                                            font.pixelSize: 11
+                                            color: theme.textMuted
+                                            visible: text !== ""
+                                            elide: Text.ElideRight
+                                            width: Math.min(implicitWidth, 120)
+                                        }
+                                    }
+
+                                    // Separator if hasMedia
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: mediaWorkspaceRow.hasMedia ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                    }
+
+                                    // Playback Controls
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        visible: mediaWorkspaceRow.hasMedia
+
+                                        // Previous Button
+                                        Rectangle {
+                                            width: 24; height: 24; radius: 12
+                                            color: prevBtnMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "󰒮"
+                                                font.pixelSize: 13
+                                                color: prevBtnMouse.containsMouse ? theme.accent : theme.text
+                                            }
+                                            MouseArea {
+                                                id: prevBtnMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: if (mediaWorkspaceRow.player) mediaWorkspaceRow.player.previous()
+                                            }
+                                        }
+
+                                        // Play/Pause Button
+                                        Rectangle {
+                                            width: 24; height: 24; radius: 12
+                                            color: playBtnMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: (mediaWorkspaceRow.player && mediaWorkspaceRow.player.isPlaying) ? "󰏤" : "󰐊"
+                                                font.pixelSize: 14
+                                                color: theme.accent
+                                            }
+                                            MouseArea {
+                                                id: playBtnMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: if (mediaWorkspaceRow.player) mediaWorkspaceRow.player.togglePlaying()
+                                            }
+                                        }
+
+                                        // Next Button
+                                        Rectangle {
+                                            width: 24; height: 24; radius: 12
+                                            color: nextBtnMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "󰒭"
+                                                font.pixelSize: 13
+                                                color: nextBtnMouse.containsMouse ? theme.accent : theme.text
+                                            }
+                                            MouseArea {
+                                                id: nextBtnMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: if (mediaWorkspaceRow.player) mediaWorkspaceRow.player.next()
+                                            }
+                                        }
+                                    }
+
+                                    // Separator before pager dots (only when hovered)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: centerPill.isPillHovered ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on width { NumberAnimation { duration: 140 } }
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    }
+
+                                    // Mini Bar-Workspace Pager Indicator (only when hovered)
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        visible: opacity > 0.01
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                        Repeater {
+                                            model: root.barWorkspaceCount
+                                            delegate: Rectangle {
+                                                required property int index
+                                                readonly property bool isActive: root.barWorkspaceIndex === index
+                                                width: isActive ? 12 : 4
+                                                height: 4
+                                                radius: 2
+                                                color: isActive ? theme.accent : (p2Mouse.containsMouse ? theme.text : theme.borderLight)
+
+                                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Behavior on color { ColorAnimation { duration: 140 } }
+
+                                                MouseArea {
+                                                    id: p2Mouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.setBarWorkspace(index)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
 
+                            // ─────────────────────────────────────────────────
+                            // 4. BAR-WORKSPACE 3: SYSTEM RESOURCES
+                            // ─────────────────────────────────────────────────
+                            Item {
+                                id: ws3Sysres
+                                anchors.fill: parent
+                                visible: opacity > 0.01
+                                opacity: (root.barWorkspaceIndex === 3 && !root.showingWorkspaces && !root.isActionActive && !root.isToastActive) ? 1.0 : 0.0
+                                transform: Translate {
+                                    x: root.barWorkspaceIndex === 3 ? 0 : (root.barWorkspaceIndex > 3 ? -16 : 16)
+                                    Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                }
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
 
-                            // 2. Workspaces Changing View (Requirement: Full bar shows ONLY workspace icons!)
+                                Row {
+                                    id: sysresWorkspaceRow
+                                    anchors.centerIn: parent
+                                    spacing: 8
+
+                                    // 1. CPU Usage Block
+                                    Rectangle {
+                                        id: cpuBlock
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: cpuMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: cpuRow.implicitWidth + 10
+                                        clip: true
+
+                                        property bool isHov: cpuMouse.containsMouse
+
+                                        Row {
+                                            id: cpuRow
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰍛"
+                                                font.pixelSize: 13
+                                                color: theme.accent
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: cpuBlock.isHov || centerPill.isPillHovered
+                                                text: "CPU"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.cpuUsage
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+
+                                            Rectangle {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: 24; height: 4; radius: 2; color: "#222222"
+                                                Rectangle {
+                                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                                    width: parent.width * Math.min(1.0, sysStats.cpuPercent)
+                                                    radius: 2; color: theme.accent
+                                                    Behavior on width { NumberAnimation { duration: 120 } }
+                                                }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: cpuMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("sysresources")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 2. CPU Temperature Block
+                                    Rectangle {
+                                        id: tempBlock
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: tempMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: tempRow.implicitWidth + 10
+                                        clip: true
+
+                                        property bool isHov: tempMouse.containsMouse
+
+                                        Row {
+                                            id: tempRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.cpuTemp > 80 ? "󰈸" : (sysStats.cpuTemp > 65 ? "󰔏" : "󰔐")
+                                                font.pixelSize: 13
+                                                color: sysStats.cpuTemp > 80 ? theme.danger : (sysStats.cpuTemp > 65 ? theme.warning : theme.accent)
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: tempBlock.isHov || centerPill.isPillHovered
+                                                text: "Temp"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: `${sysStats.cpuTemp}°C`
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: tempMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("sysresources")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 3. RAM Usage Block
+                                    Rectangle {
+                                        id: ramBlock
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: ramMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: ramRow.implicitWidth + 10
+                                        clip: true
+
+                                        property bool isHov: ramMouse.containsMouse
+
+                                        Row {
+                                            id: ramRow
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰘚"
+                                                font.pixelSize: 13
+                                                color: theme.accent
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: ramBlock.isHov || centerPill.isPillHovered
+                                                text: "RAM"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.memUsedStr
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+
+                                            Rectangle {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: 24; height: 4; radius: 2; color: "#222222"
+                                                Rectangle {
+                                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                                    width: parent.width * Math.min(1.0, sysStats.memPercent)
+                                                    radius: 2; color: theme.accent
+                                                    Behavior on width { NumberAnimation { duration: 120 } }
+                                                }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: ramMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("sysresources")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 4. Swap Usage Block
+                                    Rectangle {
+                                        id: swapBlock
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: swapMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        width: swapRow.implicitWidth + 10
+                                        clip: true
+
+                                        property bool isHov: swapMouse.containsMouse
+
+                                        Row {
+                                            id: swapRow
+                                            anchors.centerIn: parent
+                                            spacing: 6
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰓡"
+                                                font.pixelSize: 13
+                                                color: theme.accent
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: swapBlock.isHov || centerPill.isPillHovered
+                                                text: "Swap"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: sysStats.swapUsedStr
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: swapMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("sysresources")
+                                        }
+                                    }
+
+                                    // Separator before pager dots (only when hovered)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: centerPill.isPillHovered ? 1 : 0
+                                        height: 14
+                                        color: theme.borderLight
+                                        visible: width > 0
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on width { NumberAnimation { duration: 140 } }
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    }
+
+                                    // Mini Bar-Workspace Pager Indicator (only when hovered)
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        visible: opacity > 0.01
+                                        opacity: centerPill.isPillHovered ? 1.0 : 0.0
+                                        Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                        Repeater {
+                                            model: root.barWorkspaceCount
+                                            delegate: Rectangle {
+                                                required property int index
+                                                readonly property bool isActive: root.barWorkspaceIndex === index
+                                                width: isActive ? 12 : 4
+                                                height: 4
+                                                radius: 2
+                                                color: isActive ? theme.accent : (p3Mouse.containsMouse ? theme.text : theme.borderLight)
+
+                                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Behavior on color { ColorAnimation { duration: 140 } }
+
+                                                MouseArea {
+                                                    id: p3Mouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.setBarWorkspace(index)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Workspaces Changing View
                             RowLayout {
                                 id: workspacesRow
                                 anchors.centerIn: parent
@@ -880,7 +2311,7 @@ ShellRoot {
                                 }
                             }
 
-                            // 3. Full-Bar Action View (Volume & Brightness HUD replacing clock & whole bar)
+                            // 3. Full-Bar Action View (Volume & Brightness HUD)
                             RowLayout {
                                 id: actionRow
                                 anchors.centerIn: parent
@@ -901,7 +2332,6 @@ ShellRoot {
                                     color: theme.textMuted
                                 }
 
-                                // Mini sleek progress bar
                                 Rectangle {
                                     width: 76
                                     height: 4
@@ -912,7 +2342,7 @@ ShellRoot {
                                         anchors.left: parent.left
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
-                                        width: parent.width * root.actionPercent
+                                        width: parent.width * Math.min(1.0, root.actionPercent)
                                         radius: 2
                                         color: root.actionColor
                                         Behavior on width { NumberAnimation { duration: 80 } }
@@ -926,6 +2356,150 @@ ShellRoot {
                                     color: theme.text
                                 }
                             }
+
+                            // 4. In-Pill Notification Toast HUD
+                            Item {
+                                id: toastContainer
+                                anchors.centerIn: parent
+                                width: toastRow.implicitWidth
+                                height: 26
+                                visible: !root.showingWorkspaces && !root.isActionActive && root.isToastActive
+                                opacity: visible ? 1.0 : 0.0
+
+                                property bool isToastHovered: false
+
+                                // Keep centerPill updated with our content width (even while hidden implicitWidth = 0)
+                                onWidthChanged: if (width > 0) centerPill.toastContentWidth = width
+                                Component.onCompleted: if (width > 0) centerPill.toastContentWidth = width
+
+                                Row {
+                                    id: toastRow
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 7
+
+                                    // App/Notification Icon
+                                    Item {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 18; height: 18
+                                        readonly property string toastIconSrc: root.getNotificationIcon(root.currentToast)
+
+                                        Image {
+                                            id: toastImg
+                                            anchors.fill: parent
+                                            fillMode: Image.PreserveAspectFit
+                                            source: parent.toastIconSrc
+                                            visible: parent.toastIconSrc !== "" && status === Image.Ready
+                                            smooth: true
+                                            mipmap: true
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: !toastImg.visible
+                                            text: root.currentToast ? root.getAppIcon(root.currentToast.appName, root.currentToast.summary) : "󰂚"
+                                            font.pixelSize: 14
+                                            color: theme.accent
+                                        }
+                                    }
+
+                                    // Summary (Bold, single line)
+                                    Text {
+                                        id: summaryText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.currentToast ? (root.currentToast.summary || "").replace(/[\r\n]+/g, " ") : ""
+                                        font.pixelSize: 12
+                                        font.weight: Font.Bold
+                                        color: theme.text
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
+                                        width: Math.min(implicitWidth, 160)
+                                    }
+
+                                    // Bullet separator (if body exists)
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: bodyText.visible && summaryText.text.length > 0
+                                        text: "•"
+                                        font.pixelSize: 10
+                                        color: theme.textMuted
+                                    }
+
+                                    // Body (Single line, horizontal)
+                                    Text {
+                                        id: bodyText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.currentToast ? (root.currentToast.body || "").replace(/[\r\n]+/g, " ") : ""
+                                        font.pixelSize: 11
+                                        color: theme.textMuted
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
+                                        width: Math.min(implicitWidth, 220)
+                                        visible: text.trim().length > 0
+                                    }
+
+                                    // Hover clear/cross button
+                                    Rectangle {
+                                        id: toastCloseBtn
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: (toastContainer.isToastHovered || toastCloseMouse.containsMouse) ? 18 : 0
+                                        height: 18
+                                        radius: 9
+                                        color: toastCloseMouse.containsMouse ? theme.surfaceHover : "transparent"
+                                        clip: true
+                                        visible: width > 0
+                                        opacity: width > 0 ? 1.0 : 0.0
+
+                                        Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                        Behavior on opacity { NumberAnimation { duration: 120 } }
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "✕"
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                            color: toastCloseMouse.containsMouse ? theme.danger : theme.textMuted
+                                        }
+
+                                        MouseArea {
+                                            id: toastCloseMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                if (root.currentToast) root.currentToast.dismiss()
+                                                root.dismissCurrentToast()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    z: -1
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    cursorShape: Qt.PointingHandCursor
+                                    onEntered: {
+                                        toastContainer.isToastHovered = true
+                                        toastTimer.stop()
+                                    }
+                                    onExited: {
+                                        toastContainer.isToastHovered = false
+                                        if (root.currentToast && root.currentToast.urgency !== NotificationUrgency.Critical) {
+                                            toastTimer.restart()
+                                        }
+                                    }
+                                    onClicked: mouse => {
+                                        if (mouse.button === Qt.LeftButton) {
+                                            let defAction = root.currentToast?.actions?.find(a => a.identifier === "default" || a.identifier === "open")
+                                            if (defAction) defAction.invoke()
+                                            root.dismissCurrentToast()
+                                        } else if (mouse.button === Qt.RightButton) {
+                                            if (root.currentToast) root.currentToast.dismiss()
+                                            root.dismissCurrentToast()
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Background click-dismiss for transient workspace view (only active when showing workspaces)
@@ -934,19 +2508,6 @@ ShellRoot {
                             z: -1
                             enabled: root.showingWorkspaces
                             onClicked: root.showingWorkspaces = false
-                        }
-
-                        // Scrolling anywhere on the pill adjusts audio volume or brightness without intercepting clicks or hovers
-                        WheelHandler {
-                            onWheel: event => {
-                                if (event.modifiers & Qt.ShiftModifier) {
-                                    let step = event.angleDelta.y > 0 ? 5 : -5
-                                    sysStats.adjustBrightness(step)
-                                } else {
-                                    let step = event.angleDelta.y > 0 ? 4 : -4
-                                    sysStats.adjustVolume(step)
-                                }
-                            }
                         }
                     }
 
@@ -1152,17 +2713,31 @@ ShellRoot {
                 // ─────────────────────────────────────────────────────────────
                 Rectangle {
                     id: connPanel
-                    visible: root.activePopup === "wifi"
-                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
+                    readonly property bool isShown: root.activePopup === "wifi" && !root.isPopupClosing
+                    visible: root.displayedPopup === "wifi"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: -120
 
-                    width: 380
-                    height: 450
-                    radius: 18
+                    width: 560
+                    height: 480
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
                     color: theme.bg
                     border.color: theme.border
                     border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: connPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
 
                     MouseArea {
                         anchors.fill: parent
@@ -1455,7 +3030,7 @@ ShellRoot {
                                     id: nmtuiHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         root.closePopup(false)
-                                        sysStats.launchProc.command = ["kitty", "-e", "nmtui"]
+                                        sysStats.launchProc.command = ["python3", sysStats.scriptPath, "launch-terminal", "nmtui"]
                                         sysStats.launchProc.running = true
                                     }
                                 }
@@ -1615,17 +3190,31 @@ ShellRoot {
                 // ─────────────────────────────────────────────────────────────
                 Rectangle {
                     id: batteryPanel
-                    visible: root.activePopup === "battery"
-                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
+                    readonly property bool isShown: root.activePopup === "battery" && !root.isPopupClosing
+                    visible: root.displayedPopup === "battery"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: 120
 
-                    width: 360
-                    height: 590
-                    radius: 18
+                    width: 560
+                    height: 400
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
                     color: theme.bg
                     border.color: theme.border
                     border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: batteryPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
 
                     MouseArea {
                         anchors.fill: parent
@@ -2027,85 +3616,6 @@ ShellRoot {
                             }
                         }
 
-                        // CPU Stats Bar
-                        Rectangle {
-                            Layout.fillWidth: true
-                            height: 44
-                            radius: 10
-                            color: theme.surface
-                            border.color: theme.border; border.width: 1
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 4
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { text: "CPU Usage"; font.pixelSize: 11; font.weight: Font.Medium; color: theme.text }
-                                    Item { Layout.fillWidth: true }
-                                    Text { text: sysStats.cpuUsage; font.pixelSize: 11; font.bold: true; color: theme.accent }
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 5; radius: 2.5; color: "#1c1c1c"
-                                    Rectangle { height: parent.height; width: parent.width * sysStats.cpuPercent; radius: 2.5; color: theme.accent }
-                                }
-                            }
-                        }
-
-                        // RAM Stats Bar
-                        Rectangle {
-                            Layout.fillWidth: true
-                            height: 44
-                            radius: 10
-                            color: theme.surface
-                            border.color: theme.border; border.width: 1
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 4
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { text: "Memory (RAM)"; font.pixelSize: 11; font.weight: Font.Medium; color: theme.text }
-                                    Item { Layout.fillWidth: true }
-                                    Text { text: `${sysStats.memUsedStr} / ${sysStats.memTotalStr}`; font.pixelSize: 11; font.bold: true; color: theme.accent }
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 5; radius: 2.5; color: "#1c1c1c"
-                                    Rectangle { height: parent.height; width: parent.width * sysStats.memPercent; radius: 2.5; color: theme.accent }
-                                }
-                            }
-                        }
-
-                        // Button to launch btop monitor
-                        Rectangle {
-                            Layout.fillWidth: true
-                            height: 30
-                            radius: 8
-                            color: btopHover.containsMouse ? theme.surfaceHover : theme.surface
-                            border.color: theme.border; border.width: 1
-
-                            RowLayout {
-                                anchors.centerIn: parent; spacing: 6
-                                Text { text: "󰄪"; font.pixelSize: 13; color: theme.accent }
-                                Text { text: "Open System Monitor (btop)"; font.pixelSize: 11; font.bold: true; color: theme.accent }
-                            }
-
-                            MouseArea {
-                                id: btopHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    root.closePopup(false)
-                                    sysStats.launchProc.command = ["kitty", "-e", "btop"]
-                                    sysStats.launchProc.running = true
-                                }
-                            }
-                        }
-
                         // Power Management Actions (Lock, Sleep, Restart, Power Off)
                         RowLayout {
                             Layout.fillWidth: true
@@ -2163,18 +3673,532 @@ ShellRoot {
                 }
 
                 // ─────────────────────────────────────────────────────────────
-                // PANEL C: EXPANDED BIG CLOCK & INTERACTIVE CALENDAR
+                // PANEL B2: SYSTEM RESOURCES DETAILED POPUP (CPU, Temp, RAM, Swap, btop)
                 // ─────────────────────────────────────────────────────────────
                 Rectangle {
-                    visible: root.activePopup === "calendar"
-                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
+                    id: sysresPanel
+                    readonly property bool isShown: root.activePopup === "sysresources" && !root.isPopupClosing
+                    visible: root.displayedPopup === "sysresources"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 360
-                    height: 390
-                    radius: 20
+
+                    width: 560
+                    height: 440
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
                     color: theme.bg
                     border.color: theme.border
                     border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: sysresPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 12
+
+                        // Panel Header
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: "󰍛  System Resources"
+                                font.pixelSize: 15
+                                font.bold: true
+                                color: theme.text
+                            }
+                            Item { Layout.fillWidth: true }
+                            Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: closeSysresHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeSysresHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        // CPU Utilization & Temp
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 72
+                            radius: 12
+                            color: theme.surface
+                            border.color: theme.border; border.width: 1
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "CPU Utilization"
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        color: theme.text
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: `${sysStats.cpuTemp}°C`
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: sysStats.cpuTemp > 80 ? theme.danger : (sysStats.cpuTemp > 65 ? theme.warning : theme.accent)
+                                    }
+                                    Text {
+                                        text: sysStats.cpuUsage
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        color: theme.accent
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 6; radius: 3; color: "#1c1c1c"
+                                    Rectangle {
+                                        height: parent.height
+                                        width: parent.width * Math.max(0.01, Math.min(1.0, sysStats.cpuPercent))
+                                        radius: 3
+                                        color: sysStats.cpuPercent > 0.85 ? theme.danger : theme.accent
+                                        Behavior on width { NumberAnimation { duration: 150 } }
+                                    }
+                                }
+                            }
+                        }
+
+                        // RAM (Memory) Utilization
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 72
+                            radius: 12
+                            color: theme.surface
+                            border.color: theme.border; border.width: 1
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "Memory (RAM)"
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        color: theme.text
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: `${sysStats.memUsedStr} / ${sysStats.memTotalStr} (${Math.round(sysStats.memPercent * 100)}%)`
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.accent
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 6; radius: 3; color: "#1c1c1c"
+                                    Rectangle {
+                                        height: parent.height
+                                        width: parent.width * Math.max(0.01, Math.min(1.0, sysStats.memPercent))
+                                        radius: 3
+                                        color: sysStats.memPercent > 0.9 ? theme.danger : theme.accent
+                                        Behavior on width { NumberAnimation { duration: 150 } }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Swap Memory Utilization
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 72
+                            radius: 12
+                            color: theme.surface
+                            border.color: theme.border; border.width: 1
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "Swap Memory"
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        color: theme.text
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: `${sysStats.swapUsedStr} (${Math.round(sysStats.swapPercent * 100)}%)`
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.accent
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 6; radius: 3; color: "#1c1c1c"
+                                    Rectangle {
+                                        height: parent.height
+                                        width: parent.width * Math.max(0.0, Math.min(1.0, sysStats.swapPercent))
+                                        radius: 3
+                                        color: sysStats.swapPercent > 0.8 ? theme.danger : theme.accent
+                                        Behavior on width { NumberAnimation { duration: 150 } }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Open System Monitor (btop)
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 36
+                            radius: 10
+                            color: btopSysHover.containsMouse ? theme.surfaceHover : theme.surface
+                            border.color: theme.border; border.width: 1
+
+                            RowLayout {
+                                anchors.centerIn: parent; spacing: 8
+                                Text { text: "󰄪"; font.pixelSize: 14; color: theme.accent }
+                                Text { text: "Open System Monitor (btop)"; font.pixelSize: 12; font.bold: true; color: theme.accent }
+                            }
+
+                            MouseArea {
+                                id: btopSysHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    root.closePopup(false)
+                                    sysStats.launchProc.command = ["python3", sysStats.scriptPath, "launch-terminal", "btop"]
+                                    sysStats.launchProc.running = true
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL E: FOCUSED APP CONTEXT MENU
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: appContextPanel
+                    readonly property bool isShown: root.activePopup === "appcontext" && !root.isPopupClosing
+                    visible: root.displayedPopup === "appcontext"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    readonly property string appId: (sysStats.focusedApp || "").toLowerCase()
+                    readonly property string appName: (sysStats.focusedAppName || "").toLowerCase()
+                    readonly property bool isBrowser: appId.includes("chrome") || appId.includes("firefox") || appId.includes("brave") || appId.includes("zen") || appId.includes("chromium") || appId.includes("opera") || appId.includes("vivaldi") || appId.includes("edge") || appName.includes("chrome") || appName.includes("firefox") || appName.includes("browser")
+
+                    width: 560
+                    height: isBrowser ? 280 : 180
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: appContextPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 8
+
+                        // Header with App Info
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Item {
+                                width: 22; height: 22
+                                Image {
+                                    anchors.fill: parent
+                                    fillMode: Image.PreserveAspectFit
+                                    source: sysStats.focusedAppIconPath ? ("file://" + sysStats.focusedAppIconPath) : ""
+                                    visible: status === Image.Ready
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: !sysStats.focusedAppIconPath
+                                    text: root.getAppIcon(sysStats.focusedApp, sysStats.focusedAppName)
+                                    font.pixelSize: 16
+                                    color: theme.accent
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 1
+                                Text {
+                                    text: sysStats.focusedAppName || sysStats.focusedApp || "Application"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    color: theme.text
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Text {
+                                    text: sysStats.focusedTitle || ""
+                                    font.pixelSize: 10
+                                    color: theme.textMuted
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                    visible: text !== ""
+                                }
+                            }
+
+                            Rectangle {
+                                width: 22; height: 22; radius: 11
+                                color: closeAppCtxHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 11; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeAppCtxHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: theme.border
+                        }
+
+                        // Browser Specific Actions
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            visible: appContextPanel.isBrowser
+
+                            // New Tab
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 30
+                                radius: 8
+                                color: newTabHov.containsMouse ? theme.surfaceHover : "transparent"
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 8
+                                    Text { text: "󰝰"; font.pixelSize: 14; color: theme.accent }
+                                    Text { text: "New Tab"; font.pixelSize: 12; color: theme.text }
+                                }
+
+                                MouseArea {
+                                    id: newTabHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.closePopup(false)
+                                        if (appContextPanel.appId.includes("firefox")) {
+                                            Quickshell.execDetached(["firefox", "--new-tab", "about:newtab"])
+                                        } else if (appContextPanel.appId.includes("brave")) {
+                                            Quickshell.execDetached(["brave-browser", "chrome://newtab"])
+                                        } else {
+                                            Quickshell.execDetached(["google-chrome-stable", "chrome://newtab"])
+                                        }
+                                    }
+                                }
+                            }
+
+                            // New Incognito / Private Tab
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 30
+                                radius: 8
+                                color: newIncogHov.containsMouse ? theme.surfaceHover : "transparent"
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 8
+                                    Text { text: "󰗹"; font.pixelSize: 14; color: theme.warning }
+                                    Text { text: "New Incognito / Private Window"; font.pixelSize: 12; color: theme.text }
+                                }
+
+                                MouseArea {
+                                    id: newIncogHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.closePopup(false)
+                                        if (appContextPanel.appId.includes("firefox")) {
+                                            Quickshell.execDetached(["firefox", "--private-window"])
+                                        } else if (appContextPanel.appId.includes("brave")) {
+                                            Quickshell.execDetached(["brave-browser", "--incognito"])
+                                        } else {
+                                            Quickshell.execDetached(["google-chrome-stable", "--incognito"])
+                                        }
+                                    }
+                                }
+                            }
+
+                            // New Window
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 30
+                                radius: 8
+                                color: newWinHov.containsMouse ? theme.surfaceHover : "transparent"
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 8
+                                    Text { text: "󰖲"; font.pixelSize: 14; color: theme.accent }
+                                    Text { text: "New Window"; font.pixelSize: 12; color: theme.text }
+                                }
+
+                                MouseArea {
+                                    id: newWinHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.closePopup(false)
+                                        if (appContextPanel.appId.includes("firefox")) {
+                                            Quickshell.execDetached(["firefox", "--new-window"])
+                                        } else if (appContextPanel.appId.includes("brave")) {
+                                            Quickshell.execDetached(["brave-browser", "--new-window"])
+                                        } else {
+                                            Quickshell.execDetached(["google-chrome-stable", "--new-window"])
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // General Window Actions: Fullscreen / Float
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 30
+                            radius: 8
+                            color: fsHov.containsMouse ? theme.surfaceHover : "transparent"
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                spacing: 8
+                                Text { text: "󰊓"; font.pixelSize: 14; color: theme.accent }
+                                Text { text: "Toggle Fullscreen"; font.pixelSize: 12; color: theme.text }
+                            }
+
+                            MouseArea {
+                                id: fsHov
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    root.closePopup(false)
+                                    Quickshell.execDetached(["niri", "msg", "action", "fullscreen-window"])
+                                }
+                            }
+                        }
+
+                        // Close Window Action (Danger)
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 32
+                            radius: 8
+                            color: closeWinHov.containsMouse ? "#2b1419" : theme.surface
+                            border.color: closeWinHov.containsMouse ? theme.danger : theme.border
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 6
+                                Text { text: "✕"; font.pixelSize: 12; font.bold: true; color: theme.danger }
+                                Text { text: "Close Window"; font.pixelSize: 12; font.bold: true; color: theme.danger }
+                            }
+
+                            MouseArea {
+                                id: closeWinHov
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    root.closePopup(false)
+                                    Quickshell.execDetached(["niri", "msg", "action", "close-window"])
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL C: ENLARGED UNIFIED BIG CLOCK & INTERACTIVE CALENDAR
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: calendarPanel
+                    readonly property bool isShown: root.activePopup === "calendar" && !root.isPopupClosing
+                    visible: root.displayedPopup === "calendar"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: 560
+                    height: 480
+                    // Flatten the side that connects to the pill
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: calendarPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
 
                     MouseArea {
                         anchors.fill: parent
@@ -2187,35 +4211,49 @@ ShellRoot {
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 20
-                        spacing: 14
+                        spacing: 12
 
-                        ColumnLayout {
-                            Layout.alignment: Qt.AlignHCenter
-                            spacing: 4
+                        // Header with Clock, Date, and Close button
+                        RowLayout {
+                            Layout.fillWidth: true
 
-                            Text {
-                                id: bigClockTime
-                                Layout.alignment: Qt.AlignHCenter
-                                text: Qt.formatDateTime(new Date(), "hh:mm:ss A")
-                                font.pixelSize: 28
-                                font.weight: Font.Bold
-                                color: theme.text
+                            ColumnLayout {
+                                spacing: 2
 
-                                Timer {
-                                    interval: 1000
-                                    running: root.activePopup === "calendar"
-                                    repeat: true
-                                    onTriggered: bigClockTime.text = Qt.formatDateTime(new Date(), "hh:mm:ss A")
+                                Text {
+                                    id: bigClockTime
+                                    text: Qt.formatDateTime(new Date(), "hh:mm:ss A")
+                                    font.pixelSize: 32
+                                    font.weight: Font.Bold
+                                    color: theme.text
+
+                                    Timer {
+                                        interval: 1000
+                                        running: calendarPanel.isShown
+                                        repeat: true
+                                        onTriggered: bigClockTime.text = Qt.formatDateTime(new Date(), "hh:mm:ss A")
+                                    }
+                                }
+
+                                Text {
+                                    id: bigClockDate
+                                    text: Qt.formatDateTime(new Date(), "dddd, MMMM d, yyyy")
+                                    font.pixelSize: 13
+                                    font.weight: Font.Medium
+                                    color: theme.accent
                                 }
                             }
 
-                            Text {
-                                id: bigClockDate
-                                Layout.alignment: Qt.AlignHCenter
-                                text: Qt.formatDateTime(new Date(), "dddd, MMMM d, yyyy")
-                                font.pixelSize: 13
-                                font.weight: Font.Medium
-                                color: theme.accent
+                            Item { Layout.fillWidth: true }
+
+                            Rectangle {
+                                width: 28; height: 28; radius: 14
+                                color: closeCalHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 13; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeCalHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
                             }
                         }
 
@@ -2225,48 +4263,74 @@ ShellRoot {
                             color: theme.border
                         }
 
+                        // Month Navigation Bar
                         RowLayout {
                             Layout.fillWidth: true
 
                             Text {
                                 text: {
-                                    let d = new Date(parent.parent.parent.viewYear, parent.parent.parent.viewMonth, 1)
+                                    let d = new Date(calendarPanel.viewYear, calendarPanel.viewMonth, 1)
                                     return Qt.formatDate(d, "MMMM yyyy")
                                 }
-                                font.pixelSize: 14
+                                font.pixelSize: 16
                                 font.bold: true
                                 color: theme.text
                             }
 
                             Item { Layout.fillWidth: true }
 
+                            // Quick "Today" Jump button
                             Rectangle {
-                                width: 28; height: 28; radius: 14; color: prevHov.containsMouse ? theme.surfaceHover : theme.surface
+                                width: 56; height: 26; radius: 6
+                                color: todayHov.containsMouse ? theme.surfaceHover : theme.surface
                                 border.color: theme.border; border.width: 1
-                                Text { anchors.centerIn: parent; text: "󰅁"; font.pixelSize: 14; color: theme.text }
+                                Text { anchors.centerIn: parent; text: "Today"; font.pixelSize: 11; font.weight: Font.DemiBold; color: theme.text }
                                 MouseArea {
-                                    id: prevHov; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true
+                                    id: todayHov; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true
                                     onClicked: {
-                                        let p = parent.parent.parent.parent
-                                        if (p.viewMonth === 0) { p.viewMonth = 11; p.viewYear-- } else { p.viewMonth-- }
+                                        let now = new Date()
+                                        calendarPanel.viewYear = now.getFullYear()
+                                        calendarPanel.viewMonth = now.getMonth()
                                     }
                                 }
                             }
 
                             Rectangle {
-                                width: 28; height: 28; radius: 14; color: nextHov.containsMouse ? theme.surfaceHover : theme.surface
+                                width: 28; height: 26; radius: 6; color: prevHov.containsMouse ? theme.surfaceHover : theme.surface
                                 border.color: theme.border; border.width: 1
-                                Text { anchors.centerIn: parent; text: "󰅂"; font.pixelSize: 14; color: theme.text }
+                                Text { anchors.centerIn: parent; text: "󰅁"; font.pixelSize: 13; color: theme.text }
+                                MouseArea {
+                                    id: prevHov; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true
+                                    onClicked: {
+                                        if (calendarPanel.viewMonth === 0) {
+                                            calendarPanel.viewMonth = 11
+                                            calendarPanel.viewYear--
+                                        } else {
+                                            calendarPanel.viewMonth--
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 28; height: 26; radius: 6; color: nextHov.containsMouse ? theme.surfaceHover : theme.surface
+                                border.color: theme.border; border.width: 1
+                                Text { anchors.centerIn: parent; text: "󰅂"; font.pixelSize: 13; color: theme.text }
                                 MouseArea {
                                     id: nextHov; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true
                                     onClicked: {
-                                        let p = parent.parent.parent.parent
-                                        if (p.viewMonth === 11) { p.viewMonth = 0; p.viewYear++ } else { p.viewMonth++ }
+                                        if (calendarPanel.viewMonth === 11) {
+                                            calendarPanel.viewMonth = 0
+                                            calendarPanel.viewYear++
+                                        } else {
+                                            calendarPanel.viewMonth++
+                                        }
                                     }
                                 }
                             }
                         }
 
+                        // Day Names
                         RowLayout {
                             Layout.fillWidth: true
                             Repeater {
@@ -2283,6 +4347,7 @@ ShellRoot {
                             }
                         }
 
+                        // 42-day Calendar Grid
                         GridLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -2291,7 +4356,7 @@ ShellRoot {
                             columnSpacing: 4
 
                             Repeater {
-                                model: 35
+                                model: 42
 
                                 delegate: Rectangle {
                                     required property int index
@@ -2299,18 +4364,17 @@ ShellRoot {
                                     Layout.fillHeight: true
                                     radius: 8
 
-                                    readonly property var calRoot: parent.parent.parent
-                                    readonly property int firstDay: new Date(calRoot.viewYear, calRoot.viewMonth, 1).getDay()
-                                    readonly property int totalDays: new Date(calRoot.viewYear, calRoot.viewMonth + 1, 0).getDate()
+                                    readonly property int firstDay: new Date(calendarPanel.viewYear, calendarPanel.viewMonth, 1).getDay()
+                                    readonly property int totalDays: new Date(calendarPanel.viewYear, calendarPanel.viewMonth + 1, 0).getDate()
                                     readonly property int dayNumber: index - firstDay + 1
                                     readonly property bool isValidDay: dayNumber >= 1 && dayNumber <= totalDays
 
                                     readonly property bool isToday: {
                                         let now = new Date()
-                                        return isValidDay && dayNumber === now.getDate() && calRoot.viewMonth === now.getMonth() && calRoot.viewYear === now.getFullYear()
+                                        return isValidDay && dayNumber === now.getDate() && calendarPanel.viewMonth === now.getMonth() && calendarPanel.viewYear === now.getFullYear()
                                     }
 
-                                    color: isToday ? theme.accent : "transparent"
+                                    color: isToday ? theme.accent : (dayMouse.containsMouse && isValidDay ? theme.surfaceHover : "transparent")
 
                                     Text {
                                         anchors.centerIn: parent
@@ -2319,6 +4383,12 @@ ShellRoot {
                                         font.pixelSize: 12
                                         font.weight: parent.isToday ? Font.Bold : Font.Normal
                                         color: parent.isToday ? "#000000" : theme.text
+                                    }
+
+                                    MouseArea {
+                                        id: dayMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: parent.isValidDay
                                     }
                                 }
                             }
@@ -3273,6 +5343,421 @@ ShellRoot {
                                         onClicked: {
                                             sysStats.copyClipboard(modelData.id, true)
                                             root.closePopup(false)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL F: NOTIFICATIONS HISTORY (Panel F inside overlayWindow)
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: notificationsPanel
+                    readonly property bool isShown: root.activePopup === "notifications" && !root.isPopupClosing
+                    visible: root.displayedPopup === "notifications"
+
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: 560
+                    height: 540
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: notificationsPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+
+                        // Header
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: "󰂚"
+                                font.pixelSize: 18
+                                color: theme.accent
+                            }
+
+                            Text {
+                                text: "Notifications"
+                                font.pixelSize: 16
+                                font.bold: true
+                                color: theme.text
+                            }
+
+                            Rectangle {
+                                height: 20
+                                radius: 10
+                                color: theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                width: notifCountText.implicitWidth + 12
+
+                                Text {
+                                    id: notifCountText
+                                    anchors.centerIn: parent
+                                    text: `${notifServer.trackedNotifications.values.length} items`
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: theme.textMuted
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            // DND Toggle Button
+                            Rectangle {
+                                height: 26
+                                radius: 13
+                                color: root.isDndActive ? theme.accentSurface : (dndHov.containsMouse ? theme.surfaceHover : theme.surface)
+                                border.color: root.isDndActive ? theme.accent : theme.border
+                                border.width: 1
+                                width: dndRow.implicitWidth + 14
+
+                                RowLayout {
+                                    id: dndRow
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    Text {
+                                        text: root.isDndActive ? "󰂛" : "󰂚"
+                                        font.pixelSize: 11
+                                        color: root.isDndActive ? theme.accent : theme.textMuted
+                                    }
+                                    Text {
+                                        text: root.isDndActive ? "DND On" : "DND Off"
+                                        font.pixelSize: 11
+                                        font.bold: root.isDndActive
+                                        color: root.isDndActive ? theme.accent : theme.textMuted
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: dndHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.isDndActive = !root.isDndActive
+                                }
+                            }
+
+                            // Clear All Button
+                            Rectangle {
+                                height: 26
+                                radius: 13
+                                visible: notifServer.trackedNotifications.values.length > 0
+                                color: clearNotifsHov.containsMouse ? "#2d1419" : theme.surface
+                                border.color: clearNotifsHov.containsMouse ? theme.danger : theme.border
+                                border.width: 1
+                                width: clearNotifsRow.implicitWidth + 14
+
+                                RowLayout {
+                                    id: clearNotifsRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Text {
+                                        text: "󰆴"
+                                        font.pixelSize: 11
+                                        color: clearNotifsHov.containsMouse ? theme.danger : theme.textMuted
+                                    }
+                                    Text {
+                                        text: "Clear"
+                                        font.pixelSize: 11
+                                        color: clearNotifsHov.containsMouse ? theme.danger : theme.textMuted
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: clearNotifsHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        let items = notifServer.trackedNotifications.values.slice()
+                                        for (let i = 0; i < items.length; i++) {
+                                            items[i].dismiss()
+                                        }
+                                        root.hasUnreadNotifications = false
+                                    }
+                                }
+                            }
+
+                            // Close Button
+                            Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: closeNotifHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeNotifHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        // Empty State or List Container
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 12
+                            color: theme.surface
+                            border.color: theme.border
+                            border.width: 1
+                            clip: true
+
+                            // Empty State
+                            ColumnLayout {
+                                anchors.centerIn: parent
+                                spacing: 8
+                                visible: notifServer.trackedNotifications.values.length === 0
+
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "󰂚"
+                                    font.pixelSize: 42
+                                    color: theme.textMuted
+                                    opacity: 0.35
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "No Notifications"
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    color: theme.textMuted
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "You're all caught up"
+                                    font.pixelSize: 12
+                                    color: theme.textMuted
+                                    opacity: 0.6
+                                }
+                            }
+
+                            // Notification List
+                            ListView {
+                                id: notifListView
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                visible: notifServer.trackedNotifications.values.length > 0
+                                model: notifServer.trackedNotifications.values.slice().reverse()
+
+                                delegate: Rectangle {
+                                    id: notifCard
+                                    width: notifListView.width
+                                    implicitHeight: cardContent.implicitHeight + 20
+                                    radius: 10
+                                    color: cardMouse.containsMouse ? theme.surfaceHover : "#0a0a0a"
+                                    border.color: modelData.urgency === NotificationUrgency.Critical ? theme.danger : (cardMouse.containsMouse ? theme.borderLight : theme.border)
+                                    border.width: 1
+
+                                    RowLayout {
+                                        id: cardContent
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 12
+
+                                        // Left App Icon or Notification Image
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignTop
+                                            width: 36; height: 36; radius: 8
+                                            color: "#141414"
+                                            border.color: theme.borderLight
+                                            border.width: 1
+
+                                            readonly property string notifIconSrc: root.getNotificationIcon(modelData)
+
+                                            Image {
+                                                id: notifImg
+                                                anchors.fill: parent
+                                                anchors.margins: 4
+                                                fillMode: Image.PreserveAspectFit
+                                                source: parent.notifIconSrc
+                                                visible: parent.notifIconSrc !== "" && status === Image.Ready
+                                                smooth: true
+                                                mipmap: true
+                                            }
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                visible: !notifImg.visible
+                                                text: root.getAppIcon(modelData.appName, modelData.summary)
+                                                font.pixelSize: 18
+                                                color: theme.accent
+                                            }
+                                        }
+
+                                        // Center Column (Header, Summary, Body, Actions)
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 4
+
+                                            // Top Row: App Name, Urgency badge, Relative Time
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+
+                                                Text {
+                                                    text: modelData.appName || "Notification"
+                                                    font.pixelSize: 11
+                                                    font.bold: true
+                                                    color: theme.textMuted
+                                                    elide: Text.ElideRight
+                                                    Layout.maximumWidth: 160
+                                                }
+
+                                                // Critical Urgency Badge
+                                                Rectangle {
+                                                    visible: modelData.urgency === NotificationUrgency.Critical
+                                                    height: 16; width: critText.implicitWidth + 8; radius: 4
+                                                    color: "#38171e"
+                                                    border.color: theme.danger; border.width: 1
+                                                    Text {
+                                                        id: critText
+                                                        anchors.centerIn: parent
+                                                        text: "CRITICAL"
+                                                        font.pixelSize: 9; font.bold: true
+                                                        color: theme.danger
+                                                    }
+                                                }
+
+                                                Item { Layout.fillWidth: true }
+
+                                                Text {
+                                                    text: root.getNotificationTimeAgo(modelData.id)
+                                                    font.pixelSize: 10
+                                                    color: theme.textMuted
+                                                }
+                                            }
+
+                                            // Summary / Title
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.summary || ""
+                                                font.pixelSize: 13
+                                                font.bold: true
+                                                color: theme.text
+                                                elide: Text.ElideRight
+                                                visible: text !== ""
+                                            }
+
+                                            // Body
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.body || ""
+                                                font.pixelSize: 11
+                                                color: theme.textMuted
+                                                wrapMode: Text.Wrap
+                                                maximumLineCount: 4
+                                                elide: Text.ElideRight
+                                                textFormat: Text.StyledText
+                                                visible: text !== ""
+                                            }
+
+                                            // Actions
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+                                                visible: modelData.actions && modelData.actions.length > 0
+                                                Layout.topMargin: 4
+
+                                                Repeater {
+                                                    model: modelData.actions || []
+
+                                                    Rectangle {
+                                                        height: 24
+                                                        radius: 6
+                                                        width: actText.implicitWidth + 14
+                                                        color: actMouse.containsMouse ? theme.surfaceActive : theme.surface
+                                                        border.color: actMouse.containsMouse ? theme.accent : theme.border
+                                                        border.width: 1
+
+                                                        Text {
+                                                            id: actText
+                                                            anchors.centerIn: parent
+                                                            text: modelData.text || modelData.identifier || "Action"
+                                                            font.pixelSize: 10
+                                                            font.bold: true
+                                                            color: actMouse.containsMouse ? theme.accent : theme.text
+                                                        }
+
+                                                        MouseArea {
+                                                            id: actMouse
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: {
+                                                                modelData.invoke()
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Right Dismiss Button
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignTop
+                                            width: 24; height: 24; radius: 12
+                                            color: cardDelMouse.containsMouse ? "#2d1419" : "transparent"
+                                            border.color: cardDelMouse.containsMouse ? theme.danger : "transparent"
+                                            border.width: 1
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "✕"
+                                                font.pixelSize: 10
+                                                color: cardDelMouse.containsMouse ? theme.danger : theme.textMuted
+                                            }
+
+                                            MouseArea {
+                                                id: cardDelMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: modelData.dismiss()
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: cardMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            let defAction = modelData.actions?.find(a => a.identifier === "default" || a.identifier === "open")
+                                            if (defAction) defAction.invoke()
                                         }
                                     }
                                 }
