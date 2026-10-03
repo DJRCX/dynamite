@@ -3,6 +3,258 @@ import sys
 import subprocess
 import json
 import os
+import glob
+import time
+import shlex
+
+CONFIG_PATH = os.path.expanduser("~/.config/quickshell/simple-bar/config.json")
+
+def load_config():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"position": "top"}
+
+def save_config(cfg):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        pass
+
+def clean_app_name(app_id, title=""):
+    if not app_id:
+        return ""
+    mapping = {
+        "kitty": "Kitty",
+        "alacritty": "Alacritty",
+        "foot": "Foot",
+        "org.gnome.Nautilus": "Files",
+        "nautilus": "Files",
+        "firefox": "Firefox",
+        "google-chrome": "Chrome",
+        "chromium": "Chromium",
+        "code": "VS Code",
+        "code-oss": "VS Code",
+        "antigravity": "Antigravity",
+        "antigravity-ide": "Antigravity IDE",
+        "blueman-manager": "Bluetooth",
+        "pavucontrol": "Volume Control",
+        "btop": "Btop",
+        "htop": "Htop",
+        "mpv": "MPV",
+        "vlc": "VLC",
+        "spotify": "Spotify",
+        "discord": "Discord",
+        "slack": "Slack",
+        "telegram-desktop": "Telegram",
+        "steam": "Steam",
+    }
+    if app_id in mapping:
+        return mapping[app_id]
+    if '.' in app_id:
+        return app_id.split('.')[-1].capitalize()
+    return app_id.capitalize()
+
+def get_installed_apps():
+    icon_dirs = [
+        '/usr/share/pixmaps',
+        '/usr/share/icons/hicolor/scalable/apps',
+        '/usr/share/icons/hicolor/48x48/apps',
+        '/usr/share/icons/hicolor/128x128/apps',
+        '/usr/share/icons/hicolor/256x256/apps',
+        '/usr/share/icons/hicolor/32x32/apps',
+        '/usr/share/icons/Adwaita/scalable/apps',
+        '/usr/share/icons/breeze/apps/48'
+    ]
+
+    def resolve_icon(icon_name):
+        if not icon_name: return ''
+        if os.path.isabs(icon_name) and os.path.exists(icon_name): return icon_name
+        for d in icon_dirs:
+            for ext in ['', '.png', '.svg', '.xpm']:
+                p = os.path.join(d, icon_name + ext)
+                if os.path.exists(p): return p
+        return ''
+
+    apps = []
+    seen = set()
+    dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
+    for d in dirs:
+        if not os.path.exists(d): continue
+        for f in glob.glob(os.path.join(d, '*.desktop')):
+            try:
+                name, exec_cmd, icon, comment, cat, nodisplay = '', '', '', '', 'Utility', False
+                with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                    in_entry = False
+                    for line in fp:
+                        line = line.strip()
+                        if line == '[Desktop Entry]':
+                            in_entry = True
+                            continue
+                        elif line.startswith('[') and in_entry:
+                            break
+                        if in_entry and '=' in line:
+                            k, v = line.split('=', 1)
+                            if k == 'Name' and not name: name = v
+                            elif k == 'Exec' and not exec_cmd: exec_cmd = v
+                            elif k == 'Icon' and not icon: icon = v
+                            elif k == 'Comment' and not comment: comment = v
+                            elif k == 'Categories':
+                                if 'Development' in v: cat = 'Development'
+                                elif 'Network' in v or 'Web' in v: cat = 'Internet'
+                                elif 'Audio' in v or 'Video' in v or 'Media' in v: cat = 'Media'
+                                elif 'Office' in v: cat = 'Office'
+                                elif 'System' in v or 'Settings' in v: cat = 'System'
+                            elif k == 'NoDisplay' and v.lower() == 'true': nodisplay = True
+                if name and exec_cmd and not nodisplay:
+                    if name.lower() in seen: continue
+                    seen.add(name.lower())
+                    clean_exec = ' '.join([p for p in exec_cmd.split() if not p.startswith('%')])
+                    icon_path = resolve_icon(icon)
+                    apps.append({
+                        'name': name,
+                        'exec': clean_exec,
+                        'icon': icon,
+                        'icon_path': icon_path,
+                        'comment': comment or cat,
+                        'category': cat
+                    })
+            except Exception:
+                pass
+    apps.sort(key=lambda x: x['name'].lower())
+    return apps
+
+def stream_wm():
+    state = {'focused_app': '', 'focused_app_name': '', 'focused_title': '', 'active_ws': 1, 'workspaces': [], 'windows': {}}
+    
+    def emit(ws_event=False):
+        print(json.dumps({
+            'type': 'wm',
+            'focused_app': state['focused_app'],
+            'focused_app_name': state['focused_app_name'],
+            'focused_title': state['focused_title'],
+            'active_ws': state['active_ws'],
+            'workspaces': state['workspaces'],
+            'ws_event': ws_event
+        }), flush=True)
+
+    # Initial query for Niri
+    try:
+        r = subprocess.run(['niri', 'msg', '-j', 'focused-window'], capture_output=True, text=True, timeout=1)
+        if r.returncode == 0 and r.stdout.strip():
+            w = json.loads(r.stdout)
+            if w:
+                state['focused_app'] = w.get('app_id', '')
+                state['focused_app_name'] = clean_app_name(state['focused_app'], w.get('title', ''))
+                state['focused_title'] = w.get('title', '')
+    except Exception:
+        pass
+
+    try:
+        r = subprocess.run(['niri', 'msg', '-j', 'workspaces'], capture_output=True, text=True, timeout=1)
+        if r.returncode == 0 and r.stdout.strip():
+            state['workspaces'] = []
+            for w in sorted(json.loads(r.stdout), key=lambda x: x.get('idx', 0)):
+                act = w.get('is_active', False) or w.get('is_focused', False)
+                if act: state['active_ws'] = w.get('idx', 1)
+                state['workspaces'].append({'idx': w.get('idx', 1), 'id': w.get('id'), 'name': w.get('name') or str(w.get('idx', 1)), 'active': act})
+    except Exception:
+        pass
+
+    emit(ws_event=False)
+
+    # Niri Event Stream
+    try:
+        proc = subprocess.Popen(['niri', 'msg', '-j', 'event-stream'], stdout=subprocess.PIPE, text=True)
+        while True:
+            line = proc.stdout.readline()
+            if not line: break
+            try:
+                ev = json.loads(line)
+                key = list(ev.keys())[0]
+                val = ev[key]
+                ws_switched = False
+                changed = False
+
+                if key == 'WorkspacesChanged':
+                    state['workspaces'] = []
+                    new_active = state['active_ws']
+                    for w in sorted(val.get('workspaces', []), key=lambda x: x.get('idx', 0)):
+                        act = w.get('is_active', False) or w.get('is_focused', False)
+                        if act: new_active = w.get('idx', 1)
+                        state['workspaces'].append({'idx': w.get('idx', 1), 'id': w.get('id'), 'name': w.get('name') or str(w.get('idx', 1)), 'active': act})
+                    if new_active != state['active_ws']:
+                        state['active_ws'] = new_active
+                        ws_switched = True
+                    changed = True
+
+                elif key == 'WorkspaceActivated':
+                    ws_id = val.get('id')
+                    for w in state['workspaces']:
+                        is_this = (w.get('id') == ws_id)
+                        w['active'] = is_this
+                        if is_this and w.get('idx') != state['active_ws']:
+                            state['active_ws'] = w.get('idx')
+                            ws_switched = True
+                    changed = True
+
+                elif key == 'WindowsChanged':
+                    state['windows'] = {w['id']: w for w in val.get('windows', [])}
+                    focused = next((w for w in val.get('windows', []) if w.get('is_focused')), None)
+                    new_app = focused.get('app_id', '') if focused else ''
+                    new_title = focused.get('title', '') if focused else ''
+                    if new_app != state['focused_app'] or new_title != state['focused_title']:
+                        state['focused_app'] = new_app
+                        state['focused_app_name'] = clean_app_name(new_app, new_title)
+                        state['focused_title'] = new_title
+                        changed = True
+
+                elif key == 'WindowFocusChanged':
+                    win_id = val.get('id')
+                    if win_id and win_id in state['windows']:
+                        w = state['windows'][win_id]
+                        new_app = w.get('app_id', '')
+                        new_title = w.get('title', '')
+                    else:
+                        new_app = ''
+                        new_title = ''
+                    if new_app != state['focused_app'] or new_title != state['focused_title']:
+                        state['focused_app'] = new_app
+                        state['focused_app_name'] = clean_app_name(new_app, new_title)
+                        state['focused_title'] = new_title
+                        changed = True
+
+                elif key == 'WindowOpenedOrChanged':
+                    w = val.get('window', {})
+                    if w.get('id'):
+                        state['windows'][w['id']] = w
+                        if w.get('is_focused'):
+                            new_app = w.get('app_id', '')
+                            new_title = w.get('title', '')
+                            state['focused_app'] = new_app
+                            state['focused_app_name'] = clean_app_name(new_app, new_title)
+                            state['focused_title'] = new_title
+                            changed = True
+
+                elif key == 'WindowClosed':
+                    win_id = val.get('id')
+                    if win_id in state['windows']:
+                        del state['windows'][win_id]
+
+                if changed or ws_switched:
+                    emit(ws_event=ws_switched)
+
+            except Exception:
+                pass
+    except Exception:
+        # Fallback polling loop if niri event stream fails
+        while True:
+            time.sleep(1)
 
 def get_status():
     # WiFi
@@ -121,6 +373,7 @@ def get_status():
         pass
 
     return {
+        "config": load_config(),
         "audio": {
             "volume": vol_pct,
             "muted": vol_muted
@@ -154,7 +407,37 @@ def main():
 
     cmd = sys.argv[1]
 
-    if cmd == "toggle-wifi":
+    if cmd == "wm-stream":
+        stream_wm()
+
+    elif cmd == "focus-workspace" and len(sys.argv) > 2:
+        ws = sys.argv[2]
+        subprocess.run(['niri', 'msg', 'action', 'focus-workspace', str(ws)], capture_output=True)
+        print(json.dumps({"status": "ok", "workspace": ws}))
+
+    elif cmd == "get-apps":
+        print(json.dumps(get_installed_apps()))
+
+    elif cmd == "launch-app" and len(sys.argv) > 2:
+        exec_cmd = sys.argv[2]
+        try:
+            subprocess.Popen(exec_cmd, shell=True, start_new_session=True)
+            print(json.dumps({"status": "ok", "exec": exec_cmd}))
+        except Exception as e:
+            print(json.dumps({"status": "error", "message": str(e)}))
+
+    elif cmd == "get-config":
+        print(json.dumps(load_config()))
+
+    elif cmd == "set-config" and len(sys.argv) > 3:
+        key = sys.argv[2]
+        val = sys.argv[3]
+        cfg = load_config()
+        cfg[key] = val
+        save_config(cfg)
+        print(json.dumps(cfg))
+
+    elif cmd == "toggle-wifi":
         curr = subprocess.run(['nmcli', 'radio', 'wifi'], capture_output=True, text=True).stdout.strip() == 'enabled'
         subprocess.run(['nmcli', 'radio', 'wifi', 'off' if curr else 'on'])
         print(json.dumps(get_status()))
