@@ -91,16 +91,20 @@ exec qs -d -p ~/.config/quickshell/simple-bar
 
 ---
 
-## 🛠️ Architecture & Future Customizations
+## 🛠️ Architecture & Documentation
 
 ```
 simple-bar/
 ├── shell.qml          # Declarative Quickshell interface (Bar, Balls, Panels, Sliders)
+├── config.json        # Persistent bar settings (top/bottom position)
 ├── scripts/
 │   └── control.py     # Asynchronous hardware bridge (nmcli, bluetoothctl, wpctl, etc.)
+├── CHANGELOG.md       # Comprehensive log of features, bugs, and fixes
 ├── install.sh         # Cross-distro installer and dependency checker
 └── .gitignore
 ```
+
+For full details on recent fixes, features, and debugging history, refer to [CHANGELOG.md](CHANGELOG.md).
 
 ### Making Future Changes
 Since the configuration is symlinked to `~/.config/quickshell/simple-bar`, any edits made in your local repository are immediately active:

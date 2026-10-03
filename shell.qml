@@ -13,15 +13,105 @@ ShellRoot {
     // Active flyout state: "", "wifi", "battery", "calendar", "apps"
     property string activePopup: ""
 
-    // Bar side position: "top", "bottom", "left", "right"
+    // Smooth popup dismissal state
+    property bool isPopupClosing: false
+    property string displayedPopup: root.activePopup
+
+    Timer {
+        id: popupCloseTimer
+        interval: 190
+        onTriggered: {
+            root.isPopupClosing = false
+            root.activePopup = ""
+            root.displayedPopup = ""
+        }
+    }
+
+    function openPopup(name) {
+        popupCloseTimer.stop()
+        root.isPopupClosing = false
+        root.displayedPopup = name
+        root.activePopup = name
+    }
+
+    function closePopup(instant) {
+        if (root.activePopup === "" && !root.isPopupClosing) return
+        if (instant) {
+            popupCloseTimer.stop()
+            root.isPopupClosing = false
+            root.activePopup = ""
+            root.displayedPopup = ""
+        } else {
+            root.isPopupClosing = true
+            popupCloseTimer.restart()
+        }
+    }
+
+    function togglePopup(name) {
+        if (root.activePopup === name && !root.isPopupClosing) {
+            closePopup(false)
+        } else {
+            openPopup(name)
+        }
+    }
+
+    // IPC Handler to open/toggle app launcher from external keybind (Mod+Space)
+    IpcHandler {
+        target: "launcher"
+        function toggle() {
+            root.togglePopup("apps")
+        }
+        function open() {
+            root.openPopup("apps")
+        }
+        function close() {
+            root.closePopup(false)
+        }
+    }
+
+    // IPC Handler to open/toggle clipboard history from external keybind (Mod+V)
+    IpcHandler {
+        target: "clipboard"
+        function toggle() {
+            root.togglePopup("clipboard")
+        }
+        function open() {
+            root.openPopup("clipboard")
+        }
+        function close() {
+            root.closePopup(false)
+        }
+    }
+
+    // IPC Handler to open/toggle battery and system panel
+    IpcHandler {
+        target: "battery"
+        function toggle() {
+            root.togglePopup("battery")
+        }
+        function open() {
+            root.openPopup("battery")
+        }
+        function close() {
+            root.closePopup(false)
+        }
+    }
+
+    // IPC Handler to control bar position
+    IpcHandler {
+        target: "bar"
+        function setTop(): void { root.setBarPosition("top") }
+        function setBottom(): void { root.setBarPosition("bottom") }
+    }
+
+    // Bar side position: "top" or "bottom"
     property string barPosition: "top"
-    readonly property bool isVerticalBar: barPosition === "left" || barPosition === "right"
 
     // Workspace change indicator transient state
     property bool showingWorkspaces: false
     Timer {
         id: wsIndicatorTimer
-        interval: 1800
+        interval: 700
         onTriggered: root.showingWorkspaces = false
     }
 
@@ -30,8 +120,50 @@ ShellRoot {
         wsIndicatorTimer.restart()
     }
 
+    // Dynamic Action indicator state (Volume, Brightness full-bar HUD)
+    property string actionType: ""
+    property string actionIcon: ""
+    property string actionText: ""
+    property real actionPercent: 0.0
+    property color actionColor: theme.accent
+    property bool isActionActive: false
+
+    Timer {
+        id: actionTimer
+        interval: 1300
+        onTriggered: {
+            root.isActionActive = false
+            root.actionType = ""
+        }
+    }
+
+    function showAction(type, icon, text, percent, color) {
+        root.actionType = type
+        root.actionIcon = icon
+        root.actionText = text
+        root.actionPercent = Math.max(0.0, Math.min(1.0, percent))
+        root.actionColor = color || theme.accent
+        root.isActionActive = true
+        actionTimer.restart()
+    }
+
+    function triggerVolumeFeedback() {
+        let ic = sysStats.volumeMuted ? "󰝟" : (sysStats.volume > 50 ? "󰕾" : (sysStats.volume > 0 ? "󰖀" : "󰕿"))
+        let txt = sysStats.volumeMuted ? "Muted" : `${sysStats.volume}%`
+        let pct = sysStats.volumeMuted ? 0.0 : (sysStats.volume / 100.0)
+        showAction("volume", ic, txt, pct, sysStats.volumeMuted ? theme.danger : theme.accent)
+    }
+
+    function triggerBrightnessFeedback() {
+        let ic = sysStats.brightness > 70 ? "󰃠" : (sysStats.brightness > 30 ? "󰃟" : "󰃞")
+        let txt = `${sysStats.brightness}%`
+        let pct = sysStats.brightness / 100.0
+        showAction("brightness", ic, txt, pct, theme.warning)
+    }
+
+
     function setBarPosition(pos) {
-        if (pos === "top" || pos === "bottom" || pos === "left" || pos === "right") {
+        if (pos === "top" || pos === "bottom") {
             root.barPosition = pos
             sysStats.setConfig("position", pos)
         }
@@ -88,6 +220,7 @@ ShellRoot {
         property string focusedApp: ""
         property string focusedAppName: ""
         property string focusedTitle: ""
+        property string focusedAppIconPath: ""
         property int activeWorkspace: 1
         property var workspaces: ([
             { "idx": 1, "name": "1", "active": true },
@@ -95,6 +228,7 @@ ShellRoot {
             { "idx": 3, "name": "3", "active": false }
         ])
         property var appsList: []
+        property var clipboardList: []
 
         // Connectivity & Status
         property var wifiData: ({ "powered": true, "connected": false, "ssid": "Disconnected", "signal": 0, "networks": [] })
@@ -137,6 +271,7 @@ ShellRoot {
                             sysStats.focusedApp = msg.focused_app || ""
                             sysStats.focusedAppName = msg.focused_app_name || ""
                             sysStats.focusedTitle = msg.focused_title || ""
+                            sysStats.focusedAppIconPath = msg.focused_icon_path || ""
                             sysStats.activeWorkspace = msg.active_ws || 1
                             if (Array.isArray(msg.workspaces) && msg.workspaces.length > 0) {
                                 sysStats.workspaces = msg.workspaces
@@ -144,6 +279,13 @@ ShellRoot {
                             if (msg.ws_event) {
                                 root.triggerWorkspaceIndicator()
                             }
+                        } else if (msg.type === "volume") {
+                            sysStats.volume = msg.volume
+                            sysStats.volumeMuted = msg.muted
+                            root.triggerVolumeFeedback()
+                        } else if (msg.type === "brightness") {
+                            sysStats.brightness = msg.brightness
+                            root.triggerBrightnessFeedback()
                         }
                     } catch (e) {}
                 }
@@ -210,6 +352,44 @@ ShellRoot {
             }
         }
 
+        // Clipboard History Fetcher
+        property Process clipProc: Process {
+            id: clipProc
+            command: ["python3", sysStats.scriptPath, "get-clipboard"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let list = JSON.parse(text)
+                        if (Array.isArray(list)) {
+                            sysStats.clipboardList = list
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function loadClipboard() {
+            if (!clipProc.running) {
+                clipProc.running = true
+            }
+        }
+
+        function copyClipboard(cid, autoPaste) {
+            let cmd = ["python3", sysStats.scriptPath, "copy-clipboard", String(cid)]
+            if (autoPaste) cmd.push("true")
+            Quickshell.execDetached(cmd)
+        }
+
+        function deleteClipboard(cid) {
+            Quickshell.execDetached(["python3", sysStats.scriptPath, "delete-clipboard", String(cid)])
+            sysStats.clipboardList = sysStats.clipboardList.filter(item => item.id !== String(cid))
+        }
+
+        function clearClipboard() {
+            Quickshell.execDetached(["python3", sysStats.scriptPath, "clear-clipboard"])
+            sysStats.clipboardList = []
+        }
+
         function launchApp(execCmd) {
             actionProc.command = ["python3", sysStats.scriptPath, "launch-app", execCmd]
             actionProc.running = true
@@ -223,6 +403,10 @@ ShellRoot {
         function setConfig(key, val) {
             actionProc.command = ["python3", sysStats.scriptPath, "set-config", key, val]
             actionProc.running = true
+        }
+
+        function powerAction(action) {
+            Quickshell.execDetached(["python3", sysStats.scriptPath, "power-action", action])
         }
 
         function refresh() {
@@ -289,11 +473,14 @@ ShellRoot {
         function adjustVolume(delta) {
             let val = Math.max(0, Math.min(100, sysStats.volume + delta))
             setVolume(val)
+            root.triggerVolumeFeedback()
         }
 
         function toggleMute() {
             actionProc.command = ["python3", sysStats.scriptPath, "toggle-mute"]
             actionProc.running = true
+            sysStats.volumeMuted = !sysStats.volumeMuted
+            root.triggerVolumeFeedback()
         }
 
         // Fast Backlight Controls
@@ -312,6 +499,7 @@ ShellRoot {
         function adjustBrightness(delta) {
             let val = Math.max(1, Math.min(100, sysStats.brightness + delta))
             setBrightness(val)
+            root.triggerBrightnessFeedback()
         }
 
         // Hardware workers
@@ -361,14 +549,13 @@ ShellRoot {
                 screen: modelData
 
                 anchors {
-                    top: root.barPosition === "top" || root.barPosition === "left" || root.barPosition === "right"
-                    bottom: root.barPosition === "bottom" || root.barPosition === "left" || root.barPosition === "right"
-                    left: root.barPosition === "top" || root.barPosition === "bottom" || root.barPosition === "left"
-                    right: root.barPosition === "top" || root.barPosition === "bottom" || root.barPosition === "right"
+                    top: root.barPosition === "top"
+                    bottom: root.barPosition === "bottom"
+                    left: true
+                    right: true
                 }
 
-                implicitHeight: (root.barPosition === "top" || root.barPosition === "bottom") ? theme.barHeight : 0
-                implicitWidth: (root.barPosition === "left" || root.barPosition === "right") ? theme.barHeight : 0
+                implicitHeight: theme.barHeight
                 color: "transparent"
 
                 WlrLayershell.namespace: "quickshell:simple-bar"
@@ -380,8 +567,8 @@ ShellRoot {
                 MouseArea {
                     anchors.fill: parent
                     z: 1
-                    enabled: root.activePopup !== ""
-                    onClicked: root.activePopup = ""
+                    enabled: root.activePopup !== "" && !root.isPopupClosing
+                    onClicked: root.closePopup(false)
                 }
 
                 // ─────────────────────────────────────────────────────────────
@@ -392,21 +579,14 @@ ShellRoot {
                     z: 10
                     anchors.centerIn: parent
 
-                    // Orientation dimensions
-                    height: root.isVerticalBar ?
-                            (showBalls ? (centerPill.height + leftBall.height + rightBall.height + 36) : (centerPill.height + 12)) :
-                            theme.barHeight
-
-                    width: root.isVerticalBar ?
-                           theme.barHeight :
-                           (showBalls ? (centerPill.width + leftBall.width + rightBall.width + 36) : (centerPill.width + 12))
+                    height: theme.barHeight
+                    width: showBalls ? (centerPill.width + leftBall.width + rightBall.width + 36) : (centerPill.width + 12)
 
                     Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                     property bool isHovered: false
                     // Balls collapse when workspaces are actively switching or popup is open
-                    readonly property bool showBalls: (isHovered || (root.activePopup !== "")) && !root.showingWorkspaces
+                    readonly property bool showBalls: (isHovered || (root.activePopup !== "" && !centerPill.hasOpenPanel)) && !root.showingWorkspaces && !centerPill.hasOpenPanel && !root.isActionActive && !root.isPopupClosing
 
                     Connections {
                         target: root
@@ -419,7 +599,7 @@ ShellRoot {
 
                     Timer {
                         id: collapseTimer
-                        interval: 400
+                        interval: 250
                         onTriggered: {
                             if (!clusterHover.hovered && root.activePopup === "") {
                                 pillCluster.isHovered = false
@@ -445,22 +625,36 @@ ShellRoot {
                     Rectangle {
                         id: centerPill
                         z: 10
-                        anchors.centerIn: parent
+                        color: theme.bg
                         radius: theme.pillRadius
-                        color: centerPillMouse.containsMouse || root.activePopup === "calendar" ? theme.surfaceHover : theme.bg
-                        border.color: (root.activePopup === "calendar" || root.showingWorkspaces) ? theme.accent : theme.border
-                        border.width: 1
+                        border.width: 0
+                        border.color: "transparent"
 
-                        // Horizontal vs Vertical Pill dimensions
-                        width: root.isVerticalBar ? theme.pillHeight :
-                               (root.showingWorkspaces ? (workspacesRow.implicitWidth + 32) : (pillContentRow.implicitWidth + 36))
-                        height: root.isVerticalBar ?
-                                (root.showingWorkspaces ? (workspacesCol.implicitHeight + 32) : (pillContentCol.implicitHeight + 24)) :
-                                theme.pillHeight
+                        // When a panel popup is open, expand to match it for the "unified bar" effect
+                        readonly property bool hasOpenPanel: (root.activePopup === "apps" || root.activePopup === "clipboard") && !root.isPopupClosing
+                        readonly property int panelWidth: 560
+
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: !hasOpenPanel ? parent.verticalCenter : undefined
+                        anchors.top: (hasOpenPanel && root.barPosition === "bottom") ? parent.top : undefined
+                        anchors.bottom: (hasOpenPanel && root.barPosition === "top") ? parent.bottom : undefined
+
+                        width: root.showingWorkspaces ? (workspacesRow.implicitWidth + 32)
+                               : (root.isActionActive ? (actionRow.implicitWidth + 36)
+                               : (hasOpenPanel ? panelWidth
+                               : (Math.max(pillContentRow.width, pillContentRow.implicitWidth) + 36)))
+                        height: hasOpenPanel ? theme.barHeight : theme.pillHeight
+
+                        // When panel extends below, flatten bottom corners; when extends above, flatten top corners
+                        readonly property bool panelBelow: hasOpenPanel && root.barPosition === "top"
+                        readonly property bool panelAbove: hasOpenPanel && root.barPosition === "bottom"
+                        topLeftRadius:     panelAbove ? 0 : theme.pillRadius
+                        topRightRadius:    panelAbove ? 0 : theme.pillRadius
+                        bottomLeftRadius:  panelBelow ? 0 : theme.pillRadius
+                        bottomRightRadius: panelBelow ? 0 : theme.pillRadius
 
                         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                         Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                        Behavior on border.color { ColorAnimation { duration: 160 } }
 
                         // Volume scrolling feedback state
                         property bool showingVolume: false
@@ -474,132 +668,171 @@ ShellRoot {
                         // ─────────────────────────────────────────────────────
                         Item {
                             anchors.fill: parent
-                            visible: !root.isVerticalBar
 
-                            // 1. Normal View (Clock, Date, Focused App)
-                            RowLayout {
+                            // 1. Normal View (Clock, Date, Focused App / Action indicator)
+                            Row {
                                 id: pillContentRow
                                 anchors.centerIn: parent
                                 spacing: 8
-                                visible: opacity > 0.01
-                                opacity: (!centerPill.showingVolume && !root.showingWorkspaces) ? 1.0 : 0.0
-                                Behavior on opacity { NumberAnimation { duration: 140 } }
+                                visible: !root.showingWorkspaces && !root.isActionActive
+                                opacity: visible ? 1.0 : 0.0
 
-                                // Clock + Date
-                                RowLayout {
-                                    spacing: 8
+                                // Interactive Clock + Date Button
+                                Rectangle {
+                                    id: clockArea
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    height: 26
+                                    radius: 13
+                                    color: clockMouse.containsMouse || root.activePopup === "calendar" ? theme.surfaceHover : "transparent"
+                                    border.width: 0
+                                    width: clockRow.implicitWidth + 12
 
-                                    Text {
-                                        id: clockTime
-                                        text: Qt.formatDateTime(new Date(), "hh:mm A")
-                                        font.pixelSize: 13
-                                        font.weight: Font.DemiBold
-                                        color: theme.text
+                                    RowLayout {
+                                        id: clockRow
+                                        anchors.centerIn: parent
+                                        spacing: 8
 
-                                        Timer {
-                                            interval: 1000
-                                            running: true
-                                            repeat: true
-                                            onTriggered: clockTime.text = Qt.formatDateTime(new Date(), "hh:mm A")
+                                        Text {
+                                            id: clockTime
+                                            text: Qt.formatDateTime(new Date(), "hh:mm A")
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                            color: theme.text
+
+                                            Timer {
+                                                interval: 1000
+                                                running: true
+                                                repeat: true
+                                                onTriggered: clockTime.text = Qt.formatDateTime(new Date(), "hh:mm A")
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            width: 4; height: 4; radius: 2; color: theme.textMuted
+                                        }
+
+                                        Text {
+                                            id: clockDate
+                                            text: Qt.formatDateTime(new Date(), "ddd, MMM d")
+                                            font.pixelSize: 12
+                                            font.weight: Font.Normal
+                                            color: theme.textMuted
+
+                                            Timer {
+                                                interval: 60000
+                                                running: true
+                                                repeat: true
+                                                onTriggered: clockDate.text = Qt.formatDateTime(new Date(), "ddd, MMM d")
+                                            }
                                         }
                                     }
 
-                                    Rectangle {
-                                        width: 4; height: 4; radius: 2; color: theme.textMuted
-                                    }
-
-                                    Text {
-                                        id: clockDate
-                                        text: Qt.formatDateTime(new Date(), "ddd, MMM d")
-                                        font.pixelSize: 12
-                                        font.weight: Font.Normal
-                                        color: theme.textMuted
-
-                                        Timer {
-                                            interval: 60000
-                                            running: true
-                                            repeat: true
-                                            onTriggered: clockDate.text = Qt.formatDateTime(new Date(), "ddd, MMM d")
-                                        }
+                                    MouseArea {
+                                        id: clockMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.togglePopup("calendar")
                                     }
                                 }
 
-                                // Focused Application Badge (Extends Pill Width!)
-                                RowLayout {
-                                    visible: sysStats.focusedApp !== ""
-                                    spacing: 8
+                                // Separator (only visible when appBadge is visible)
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 1; height: 14; color: theme.borderLight
+                                    visible: appBadge.shouldShow
+                                }
 
-                                    Rectangle {
-                                        width: 1; height: 14; color: theme.borderLight
-                                    }
+                                // Focused App / Launcher / Clipboard area (hides Desktop button when on desktop)
+                                Rectangle {
+                                    id: appBadge
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    height: 26
+                                    radius: 13
+                                    color: (appBadgeMouse.containsMouse || root.activePopup === "apps" || root.activePopup === "clipboard") ? theme.surfaceHover : "transparent"
+                                    border.width: 0
 
-                                    Rectangle {
-                                        id: appBadge
-                                        height: 24
-                                        radius: 12
-                                        color: appBadgeMouse.containsMouse || root.activePopup === "apps" ? theme.surfaceHover : "transparent"
-                                        border.color: root.activePopup === "apps" ? theme.accent : (appBadgeMouse.containsMouse ? theme.borderLight : "transparent")
-                                        border.width: 1
-                                        width: appBadgeRow.implicitWidth + 14
+                                    readonly property bool hasFocusedApp: (sysStats.focusedAppName !== "" || sysStats.focusedApp !== "") && sysStats.focusedApp.toLowerCase() !== "desktop"
+                                    readonly property bool isLauncherHovered: appBadgeMouse.containsMouse || (root.activePopup === "apps" && !root.isPopupClosing)
+                                    readonly property bool isClipboard: (root.activePopup === "clipboard" && !root.isPopupClosing)
+                                    readonly property bool shouldShow: hasFocusedApp || isLauncherHovered || isClipboard
 
-                                        RowLayout {
-                                            id: appBadgeRow
-                                            anchors.centerIn: parent
-                                            spacing: 6
+                                    visible: shouldShow
+                                    width: shouldShow ? (appBadgeRow.width + 20) : 0
+                                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    clip: true
+
+                                    Row {
+                                        id: appBadgeRow
+                                        anchors.centerIn: parent
+                                        spacing: 6
+
+                                        // Unified icon container
+                                        Item {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 16; height: 16
+
+                                            // 1. Clipboard icon
+                                            Text {
+                                                anchors.centerIn: parent
+                                                visible: appBadge.isClipboard
+                                                text: "󰅍"
+                                                font.pixelSize: 14
+                                                color: theme.accent
+                                            }
+
+                                            // 2. Launcher icon
+                                            Text {
+                                                anchors.centerIn: parent
+                                                visible: appBadge.isLauncherHovered && !appBadge.isClipboard
+                                                text: "󰀻"
+                                                font.pixelSize: 14
+                                                color: theme.accent
+                                            }
+
+                                            // 3. Real App Icon (Image or Nerd Font fallback)
+                                            Image {
+                                                id: appRealIcon
+                                                anchors.fill: parent
+                                                fillMode: Image.PreserveAspectFit
+                                                source: sysStats.focusedAppIconPath ? ("file://" + sysStats.focusedAppIconPath) : ""
+                                                visible: !appBadge.isLauncherHovered && !appBadge.isClipboard && status === Image.Ready
+                                                smooth: true
+                                                mipmap: true
+                                            }
 
                                             Text {
+                                                anchors.centerIn: parent
+                                                visible: !appBadge.isLauncherHovered && !appBadge.isClipboard && (!appRealIcon.visible || appRealIcon.status !== Image.Ready)
                                                 text: root.getAppIcon(sysStats.focusedApp, sysStats.focusedAppName)
                                                 font.pixelSize: 13
                                                 color: theme.accent
                                             }
-
-                                            Text {
-                                                text: sysStats.focusedAppName || sysStats.focusedApp
-                                                font.pixelSize: 12
-                                                font.weight: Font.DemiBold
-                                                color: theme.text
-                                                elide: Text.ElideRight
-                                                Layout.maximumWidth: 160
-                                            }
                                         }
 
-                                        MouseArea {
-                                            id: appBadgeMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                root.activePopup = root.activePopup === "apps" ? "" : "apps"
-                                            }
+                                        // Text: context-aware label
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: appBadge.isClipboard ? "Clipboard"
+                                                : (appBadge.isLauncherHovered ? "Launcher"
+                                                : (sysStats.focusedAppName || sysStats.focusedApp || ""))
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            color: (appBadge.isLauncherHovered || appBadge.isClipboard) ? theme.accent : theme.text
+                                            elide: Text.ElideRight
                                         }
-                                    }
-                                }
-
-                                // Quick Apps Launcher Button
-                                Rectangle {
-                                    width: 24; height: 24; radius: 12
-                                    color: appsIconMouse.containsMouse || root.activePopup === "apps" ? theme.surfaceHover : "transparent"
-                                    border.color: root.activePopup === "apps" ? theme.accent : "transparent"
-                                    border.width: 1
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "󰀻"
-                                        font.pixelSize: 13
-                                        color: root.activePopup === "apps" ? theme.accent : theme.textMuted
                                     }
 
                                     MouseArea {
-                                        id: appsIconMouse
+                                        id: appBadgeMouse
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.activePopup = root.activePopup === "apps" ? "" : "apps"
-                                        }
+                                        onClicked: root.togglePopup("apps")
                                     }
                                 }
                             }
+
 
                             // 2. Workspaces Changing View (Requirement: Full bar shows ONLY workspace icons!)
                             RowLayout {
@@ -620,8 +853,7 @@ ShellRoot {
                                         width: isAct ? 34 : 26
                                         radius: 12
                                         color: isAct ? theme.accent : (wsMouse.containsMouse ? theme.surfaceHover : theme.surface)
-                                        border.color: isAct ? theme.accent : theme.border
-                                        border.width: 1
+                                        border.width: 0
 
                                         Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                         Behavior on color { ColorAnimation { duration: 140 } }
@@ -648,146 +880,72 @@ ShellRoot {
                                 }
                             }
 
-                            // 3. Volume HUD View
+                            // 3. Full-Bar Action View (Volume & Brightness HUD replacing clock & whole bar)
                             RowLayout {
+                                id: actionRow
                                 anchors.centerIn: parent
-                                spacing: 8
-                                visible: opacity > 0.01
-                                opacity: (centerPill.showingVolume && !root.showingWorkspaces) ? 1.0 : 0.0
-                                Behavior on opacity { NumberAnimation { duration: 140 } }
+                                spacing: 10
+                                visible: !root.showingWorkspaces && root.isActionActive
+                                opacity: visible ? 1.0 : 0.0
 
                                 Text {
-                                    text: sysStats.volumeMuted ? "󰝟" : (sysStats.volume > 50 ? "󰕾" : (sysStats.volume > 0 ? "󰖀" : "󰕿"))
-                                    font.pixelSize: 14
-                                    color: sysStats.volumeMuted ? theme.danger : theme.accent
+                                    text: root.actionIcon
+                                    font.pixelSize: 15
+                                    color: root.actionColor
                                 }
 
                                 Text {
-                                    text: sysStats.volumeMuted ? "Muted" : `${sysStats.volume}%`
-                                    font.pixelSize: 13
+                                    text: root.actionType === "volume" ? "Volume" : "Brightness"
+                                    font.pixelSize: 12
                                     font.weight: Font.DemiBold
+                                    color: theme.textMuted
+                                }
+
+                                // Mini sleek progress bar
+                                Rectangle {
+                                    width: 76
+                                    height: 4
+                                    radius: 2
+                                    color: "#222222"
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width * root.actionPercent
+                                        radius: 2
+                                        color: root.actionColor
+                                        Behavior on width { NumberAnimation { duration: 80 } }
+                                    }
+                                }
+
+                                Text {
+                                    text: root.actionText
+                                    font.pixelSize: 12
+                                    font.weight: Font.Bold
                                     color: theme.text
                                 }
                             }
                         }
 
-                        // ─────────────────────────────────────────────────────
-                        // B. VERTICAL BAR CONTENT (Left / Right positions)
-                        // ─────────────────────────────────────────────────────
-                        Item {
+                        // Background click-dismiss for transient workspace view (only active when showing workspaces)
+                        MouseArea {
                             anchors.fill: parent
-                            visible: root.isVerticalBar
-
-                            ColumnLayout {
-                                id: pillContentCol
-                                anchors.centerIn: parent
-                                spacing: 8
-                                visible: !root.showingWorkspaces
-
-                                // Clock stacked
-                                ColumnLayout {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    spacing: 1
-                                    Text {
-                                        Layout.alignment: Qt.AlignHCenter
-                                        text: Qt.formatDateTime(new Date(), "hh")
-                                        font.pixelSize: 12
-                                        font.weight: Font.DemiBold
-                                        color: theme.text
-                                    }
-                                    Text {
-                                        Layout.alignment: Qt.AlignHCenter
-                                        text: Qt.formatDateTime(new Date(), "mm")
-                                        font.pixelSize: 12
-                                        font.weight: Font.DemiBold
-                                        color: theme.textMuted
-                                    }
-                                }
-
-                                // Focused App Icon
-                                Rectangle {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    visible: sysStats.focusedApp !== ""
-                                    width: 24; height: 24; radius: 12
-                                    color: root.activePopup === "apps" ? theme.accentSurface : "transparent"
-                                    border.color: root.activePopup === "apps" ? theme.accent : "transparent"
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: root.getAppIcon(sysStats.focusedApp, sysStats.focusedAppName)
-                                        font.pixelSize: 13
-                                        color: theme.accent
-                                    }
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.activePopup = root.activePopup === "apps" ? "" : "apps"
-                                    }
-                                }
-                            }
-
-                            // Workspaces Column
-                            ColumnLayout {
-                                id: workspacesCol
-                                anchors.centerIn: parent
-                                spacing: 6
-                                visible: root.showingWorkspaces
-
-                                Repeater {
-                                    model: sysStats.workspaces
-
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        readonly property bool isAct: modelData.active
-                                        width: 24
-                                        height: isAct ? 30 : 22
-                                        radius: 11
-                                        color: isAct ? theme.accent : theme.surface
-                                        border.color: isAct ? theme.accent : theme.border
-                                        border.width: 1
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: modelData.name || String(modelData.idx)
-                                            font.pixelSize: 10
-                                            font.weight: isAct ? Font.Bold : Font.Normal
-                                            color: isAct ? "#000000" : theme.textMuted
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                sysStats.focusWorkspace(modelData.idx)
-                                                wsIndicatorTimer.restart()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            z: -1
+                            enabled: root.showingWorkspaces
+                            onClicked: root.showingWorkspaces = false
                         }
 
-                        // Center Pill Mouse interaction
-                        MouseArea {
-                            id: centerPillMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (root.showingWorkspaces) {
-                                    root.showingWorkspaces = false
+                        // Scrolling anywhere on the pill adjusts audio volume or brightness without intercepting clicks or hovers
+                        WheelHandler {
+                            onWheel: event => {
+                                if (event.modifiers & Qt.ShiftModifier) {
+                                    let step = event.angleDelta.y > 0 ? 5 : -5
+                                    sysStats.adjustBrightness(step)
                                 } else {
-                                    root.activePopup = root.activePopup === "calendar" ? "" : "calendar"
+                                    let step = event.angleDelta.y > 0 ? 4 : -4
+                                    sysStats.adjustVolume(step)
                                 }
-                            }
-
-                            // Scrolling adjusts audio volume
-                            onWheel: wheel => {
-                                let step = wheel.angleDelta.y > 0 ? 4 : -4
-                                sysStats.adjustVolume(step)
-                                centerPill.showingVolume = true
-                                centerPill.volTimer.restart()
                             }
                         }
                     }
@@ -800,29 +958,22 @@ ShellRoot {
                         z: 12
                         height: theme.ballSize
                         radius: theme.ballRadius
-
-                        // Anchoring: Horizontal (left of centerPill) vs Vertical (above centerPill)
-                        anchors.verticalCenter: !root.isVerticalBar ? centerPill.verticalCenter : undefined
-                        anchors.right: !root.isVerticalBar ? centerPill.left : undefined
-                        anchors.rightMargin: !root.isVerticalBar ? (pillCluster.showBalls ? 10 : -theme.ballRadius) : 0
-
-                        anchors.horizontalCenter: root.isVerticalBar ? centerPill.horizontalCenter : undefined
-                        anchors.bottom: root.isVerticalBar ? centerPill.top : undefined
-                        anchors.bottomMargin: root.isVerticalBar ? (pillCluster.showBalls ? 10 : -theme.ballRadius) : 0
+                        anchors.verticalCenter: centerPill.verticalCenter
+                        anchors.right: centerPill.left
+                        anchors.rightMargin: pillCluster.showBalls ? 10 : -theme.ballRadius
 
                         property bool isBallHovered: leftBallMouse.containsMouse
-                        width: (!root.isVerticalBar && isBallHovered) ? Math.max(theme.ballSize, leftBallContent.implicitWidth + 20) : theme.ballSize
+                        width: isBallHovered ? Math.max(theme.ballSize, leftBallContent.implicitWidth + 20) : theme.ballSize
                         clip: true
 
                         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
                         Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
                         Behavior on anchors.rightMargin { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                        Behavior on anchors.bottomMargin { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                         color: leftBall.isBallHovered || root.activePopup === "wifi" ? theme.surfaceHover : theme.bg
-                        border.color: root.activePopup === "wifi" ? theme.accent : theme.border
-                        border.width: 1
+                        border.color: "transparent"
+                        border.width: 0
 
                         opacity: pillCluster.showBalls ? 1.0 : 0.0
                         scale: pillCluster.showBalls ? 1.0 : 0.4
@@ -841,7 +992,7 @@ ShellRoot {
 
                             // Dynamic hover text showing active Wi-Fi SSID & Bluetooth status
                             RowLayout {
-                                visible: !root.isVerticalBar && leftBall.isBallHovered
+                                visible: leftBall.isBallHovered
                                 spacing: 8
 
                                 Text {
@@ -883,15 +1034,9 @@ ShellRoot {
                         z: 12
                         height: theme.ballSize
                         radius: theme.ballRadius
-
-                        // Anchoring: Horizontal (right of centerPill) vs Vertical (below centerPill)
-                        anchors.verticalCenter: !root.isVerticalBar ? centerPill.verticalCenter : undefined
-                        anchors.left: !root.isVerticalBar ? centerPill.right : undefined
-                        anchors.leftMargin: !root.isVerticalBar ? (pillCluster.showBalls ? 10 : -theme.ballRadius) : 0
-
-                        anchors.horizontalCenter: root.isVerticalBar ? centerPill.horizontalCenter : undefined
-                        anchors.top: root.isVerticalBar ? centerPill.bottom : undefined
-                        anchors.topMargin: root.isVerticalBar ? (pillCluster.showBalls ? 10 : -theme.ballRadius) : 0
+                        anchors.verticalCenter: centerPill.verticalCenter
+                        anchors.left: centerPill.right
+                        anchors.leftMargin: pillCluster.showBalls ? 10 : -theme.ballRadius
 
                         readonly property real rawPct: UPower.displayDevice?.percentage ?? 0
                         readonly property real normalizedPct: rawPct > 1.0 ? (rawPct / 100.0) : rawPct
@@ -899,18 +1044,17 @@ ShellRoot {
                         readonly property bool charging: UPower.displayDevice?.state === 1
 
                         property bool isBallHovered: rightBallMouse.containsMouse
-                        width: (!root.isVerticalBar && isBallHovered) ? Math.max(theme.ballSize, rightBallContent.implicitWidth + 20) : theme.ballSize
+                        width: isBallHovered ? Math.max(theme.ballSize, rightBallContent.implicitWidth + 20) : theme.ballSize
                         clip: true
 
                         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
                         Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
                         Behavior on anchors.leftMargin { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                        Behavior on anchors.topMargin { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                         color: rightBall.isBallHovered || root.activePopup === "battery" ? theme.surfaceHover : theme.bg
-                        border.color: root.activePopup === "battery" ? theme.accent : theme.border
-                        border.width: 1
+                        border.color: "transparent"
+                        border.width: 0
 
                         opacity: pillCluster.showBalls ? 1.0 : 0.0
                         scale: pillCluster.showBalls ? 1.0 : 0.4
@@ -929,7 +1073,7 @@ ShellRoot {
 
                             // Dynamic hover text showing Battery percentage & state
                             RowLayout {
-                                visible: !root.isVerticalBar && rightBall.isBallHovered
+                                visible: rightBall.isBallHovered
                                 spacing: 6
 
                                 Text {
@@ -948,7 +1092,16 @@ ShellRoot {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.activePopup = root.activePopup === "battery" ? "" : "battery"
                         }
+
+                        // Scrolling on the battery/status ball adjusts screen brightness
+                        WheelHandler {
+                            onWheel: event => {
+                                let step = event.angleDelta.y > 0 ? 5 : -5
+                                sysStats.adjustBrightness(step)
+                            }
+                        }
                     }
+
                 }
             }
         }
@@ -966,7 +1119,7 @@ ShellRoot {
                 required property var modelData
                 screen: modelData
 
-                visible: root.activePopup !== ""
+                visible: root.activePopup !== "" || root.isPopupClosing
 
                 anchors {
                     top: true
@@ -977,19 +1130,21 @@ ShellRoot {
                 margins {
                     top: root.barPosition === "top" ? theme.barHeight : 0
                     bottom: root.barPosition === "bottom" ? theme.barHeight : 0
-                    left: root.barPosition === "left" ? theme.barHeight : 0
-                    right: root.barPosition === "right" ? theme.barHeight : 0
+                    left: 0
+                    right: 0
                 }
 
                 color: "transparent"
                 WlrLayershell.namespace: "quickshell:simple-bar-popups"
                 WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.keyboardFocus: ((root.activePopup === "apps" || root.activePopup === "clipboard") && !root.isPopupClosing) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
                 exclusionMode: ExclusionMode.Ignore
 
                 // Click-outside background to dismiss popup
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.activePopup = ""
+                    enabled: root.activePopup !== "" && !root.isPopupClosing
+                    onClicked: root.closePopup(false)
                 }
 
                 // ─────────────────────────────────────────────────────────────
@@ -998,12 +1153,9 @@ ShellRoot {
                 Rectangle {
                     id: connPanel
                     visible: root.activePopup === "wifi"
-                    anchors.top: (root.barPosition === "top" || root.isVerticalBar) ? parent.top : undefined
-                    anchors.topMargin: root.barPosition === "top" ? 6 : 20
-                    anchors.bottom: root.barPosition === "bottom" ? parent.bottom : undefined
-                    anchors.bottomMargin: root.barPosition === "bottom" ? 6 : 0
+                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: root.isVerticalBar ? 0 : -120
+                    anchors.horizontalCenterOffset: -120
 
                     width: 380
                     height: 450
@@ -1039,7 +1191,7 @@ ShellRoot {
                                 Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
                                 MouseArea {
                                     id: closeConnHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.activePopup = ""
+                                    onClicked: root.closePopup(false)
                                 }
                             }
                         }
@@ -1302,7 +1454,7 @@ ShellRoot {
                                 MouseArea {
                                     id: nmtuiHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.activePopup = ""
+                                        root.closePopup(false)
                                         sysStats.launchProc.command = ["kitty", "-e", "nmtui"]
                                         sysStats.launchProc.running = true
                                     }
@@ -1449,7 +1601,7 @@ ShellRoot {
                                 MouseArea {
                                     id: bluemanHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.activePopup = ""
+                                        root.closePopup(false)
                                         sysStats.openBtManager()
                                     }
                                 }
@@ -1464,15 +1616,12 @@ ShellRoot {
                 Rectangle {
                     id: batteryPanel
                     visible: root.activePopup === "battery"
-                    anchors.top: (root.barPosition === "top" || root.isVerticalBar) ? parent.top : undefined
-                    anchors.topMargin: root.barPosition === "top" ? 6 : 20
-                    anchors.bottom: root.barPosition === "bottom" ? parent.bottom : undefined
-                    anchors.bottomMargin: root.barPosition === "bottom" ? 6 : 0
+                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: root.isVerticalBar ? 0 : 120
+                    anchors.horizontalCenterOffset: 120
 
                     width: 360
-                    height: 550
+                    height: 590
                     radius: 18
                     color: theme.bg
                     border.color: theme.border
@@ -1508,7 +1657,7 @@ ShellRoot {
                                 Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
                                 MouseArea {
                                     id: closeBatHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.activePopup = ""
+                                    onClicked: root.closePopup(false)
                                 }
                             }
                         }
@@ -1836,9 +1985,7 @@ ShellRoot {
                                     Repeater {
                                         model: [
                                             { id: "top", label: "Top", icon: "󰁝" },
-                                            { id: "bottom", label: "Bottom", icon: "󰁅" },
-                                            { id: "left", label: "Left", icon: "󰁍" },
-                                            { id: "right", label: "Right", icon: "󰁔" }
+                                            { id: "bottom", label: "Bottom", icon: "󰁅" }
                                         ]
 
                                         delegate: Rectangle {
@@ -1952,9 +2099,63 @@ ShellRoot {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    root.activePopup = ""
+                                    root.closePopup(false)
                                     sysStats.launchProc.command = ["kitty", "-e", "btop"]
                                     sysStats.launchProc.running = true
+                                }
+                            }
+                        }
+
+                        // Power Management Actions (Lock, Sleep, Restart, Power Off)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Repeater {
+                                model: [
+                                    { id: "lock", label: "Lock", icon: "󰌾", color: theme.accent, danger: false },
+                                    { id: "sleep", label: "Sleep", icon: "󰒲", color: theme.warning, danger: false },
+                                    { id: "reboot", label: "Restart", icon: "󰜉", color: theme.accent, danger: false },
+                                    { id: "poweroff", label: "Power", icon: "󰐥", color: theme.danger, danger: true }
+                                ]
+
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    height: 32
+                                    radius: 8
+                                    color: pwrBtnHov.containsMouse ? (modelData.danger ? "#2b1419" : theme.surfaceHover) : theme.surface
+                                    border.color: pwrBtnHov.containsMouse ? (modelData.danger ? theme.danger : theme.accent) : theme.border
+                                    border.width: 1
+
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 5
+
+                                        Text {
+                                            text: modelData.icon
+                                            font.pixelSize: 13
+                                            color: pwrBtnHov.containsMouse ? (modelData.danger ? theme.danger : theme.accent) : modelData.color
+                                        }
+
+                                        Text {
+                                            text: modelData.label
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            color: pwrBtnHov.containsMouse ? theme.text : theme.textMuted
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: pwrBtnHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.closePopup(false)
+                                            sysStats.powerAction(modelData.id)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1966,10 +2167,7 @@ ShellRoot {
                 // ─────────────────────────────────────────────────────────────
                 Rectangle {
                     visible: root.activePopup === "calendar"
-                    anchors.top: (root.barPosition === "top" || root.isVerticalBar) ? parent.top : undefined
-                    anchors.topMargin: root.barPosition === "top" ? 6 : 20
-                    anchors.bottom: root.barPosition === "bottom" ? parent.bottom : undefined
-                    anchors.bottomMargin: root.barPosition === "bottom" ? 6 : 0
+                    y: root.barPosition === "top" ? 6 : (parent.height - height - 6)
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 360
                     height: 390
@@ -2133,24 +2331,32 @@ ShellRoot {
                 // ─────────────────────────────────────────────────────────────
                 Rectangle {
                     id: appsPanel
-                    visible: root.activePopup === "apps"
-                    anchors.top: (root.barPosition === "top" || root.isVerticalBar) ? parent.top : undefined
-                    anchors.topMargin: root.barPosition === "top" ? 8 : 20
-                    anchors.bottom: root.barPosition === "bottom" ? parent.bottom : undefined
-                    anchors.bottomMargin: root.barPosition === "bottom" ? 8 : 0
+                    readonly property bool isShown: root.activePopup === "apps" && !root.isPopupClosing
+                    visible: root.displayedPopup === "apps"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     width: 560
                     height: 520
-                    radius: 20
+                    // Flatten the side that connects to the pill
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
                     color: theme.bg
                     border.color: theme.border
                     border.width: 1
 
-                    scale: visible ? 1.0 : 0.94
-                    opacity: visible ? 1.0 : 0.0
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
                     Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: appsPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
 
                     MouseArea {
                         anchors.fill: parent
@@ -2158,6 +2364,21 @@ ShellRoot {
 
                     property string searchQuery: ""
                     property string activeCategory: "All"
+                    property int selectedIndex: 0
+
+                    function resetSearch() {
+                        searchQuery = ""
+                        activeCategory = "All"
+                        selectedIndex = 0
+                        if (appSearchInput) {
+                            appSearchInput.text = ""
+                            appSearchInput.forceActiveFocus()
+                        }
+                        currentApps = getFilteredApps()
+                        if (appsScrollView && appsScrollView.contentItem) {
+                            appsScrollView.contentItem.contentY = 0
+                        }
+                    }
 
                     function getFilteredApps() {
                         let list = sysStats.appsList || []
@@ -2175,8 +2396,20 @@ ShellRoot {
 
                     property var currentApps: getFilteredApps()
 
-                    onSearchQueryChanged: currentApps = getFilteredApps()
-                    onActiveCategoryChanged: currentApps = getFilteredApps()
+                    onSearchQueryChanged: {
+                        currentApps = getFilteredApps()
+                        selectedIndex = 0
+                        if (appsScrollView && appsScrollView.contentItem) {
+                            appsScrollView.contentItem.contentY = 0
+                        }
+                    }
+                    onActiveCategoryChanged: {
+                        currentApps = getFilteredApps()
+                        selectedIndex = 0
+                        if (appsScrollView && appsScrollView.contentItem) {
+                            appsScrollView.contentItem.contentY = 0
+                        }
+                    }
                     Connections {
                         target: sysStats
                         function onAppsListChanged() {
@@ -2186,11 +2419,20 @@ ShellRoot {
 
                     onVisibleChanged: {
                         if (visible) {
-                            searchQuery = ""
-                            activeCategory = "All"
+                            resetSearch()
                             sysStats.loadApps()
-                            appSearchInput.forceActiveFocus()
                         }
+                    }
+
+                    onIsShownChanged: {
+                        if (isShown) {
+                            resetSearch()
+                            sysStats.loadApps()
+                        }
+                    }
+
+                    onSelectedIndexChanged: {
+                        if (appsScrollView) appsScrollView.scrollToSelected()
                     }
 
                     ColumnLayout {
@@ -2245,7 +2487,7 @@ ShellRoot {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.activePopup = ""
+                                    onClicked: root.closePopup(false)
                                 }
                             }
                         }
@@ -2289,11 +2531,54 @@ ShellRoot {
 
                                     onTextChanged: appsPanel.searchQuery = text
 
-                                    Keys.onEscapePressed: root.activePopup = ""
+                                    Keys.onEscapePressed: root.closePopup(false)
                                     Keys.onReturnPressed: {
                                         if (appsPanel.currentApps.length > 0) {
-                                            sysStats.launchApp(appsPanel.currentApps[0].exec)
-                                            root.activePopup = ""
+                                            let idx = Math.max(0, Math.min(appsPanel.selectedIndex, appsPanel.currentApps.length - 1))
+                                            sysStats.launchApp(appsPanel.currentApps[idx].exec)
+                                            root.closePopup(false)
+                                        }
+                                    }
+                                    Keys.onDownPressed: {
+                                        if (appsPanel.currentApps.length > 0) {
+                                            let next = appsPanel.selectedIndex + 2
+                                            if (next >= appsPanel.currentApps.length && appsPanel.selectedIndex % 2 === 0 && appsPanel.selectedIndex + 1 < appsPanel.currentApps.length) {
+                                                next = appsPanel.selectedIndex + 1
+                                            }
+                                            appsPanel.selectedIndex = Math.min(appsPanel.currentApps.length - 1, next)
+                                        }
+                                    }
+                                    Keys.onUpPressed: {
+                                        if (appsPanel.currentApps.length > 0) {
+                                            appsPanel.selectedIndex = Math.max(0, appsPanel.selectedIndex - 2)
+                                        }
+                                    }
+                                    Keys.onRightPressed: {
+                                        if (text === "" || cursorPosition === text.length) {
+                                            if (appsPanel.currentApps.length > 0) {
+                                                appsPanel.selectedIndex = Math.min(appsPanel.currentApps.length - 1, appsPanel.selectedIndex + 1)
+                                            }
+                                        } else {
+                                            event.accepted = false
+                                        }
+                                    }
+                                    Keys.onLeftPressed: {
+                                        if (text === "" || cursorPosition === 0) {
+                                            if (appsPanel.currentApps.length > 0) {
+                                                appsPanel.selectedIndex = Math.max(0, appsPanel.selectedIndex - 1)
+                                            }
+                                        } else {
+                                            event.accepted = false
+                                        }
+                                    }
+                                    Keys.onTabPressed: {
+                                        if (appsPanel.currentApps.length > 0) {
+                                            appsPanel.selectedIndex = (appsPanel.selectedIndex + 1) % appsPanel.currentApps.length
+                                        }
+                                    }
+                                    Keys.onBacktabPressed: {
+                                        if (appsPanel.currentApps.length > 0) {
+                                            appsPanel.selectedIndex = (appsPanel.selectedIndex - 1 + appsPanel.currentApps.length) % appsPanel.currentApps.length
                                         }
                                     }
                                 }
@@ -2308,7 +2593,10 @@ ShellRoot {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: appSearchInput.text = ""
+                                        onClicked: {
+                                            appSearchInput.text = ""
+                                            appSearchInput.forceActiveFocus()
+                                        }
                                     }
                                 }
                             }
@@ -2352,33 +2640,52 @@ ShellRoot {
                             }
                         }
 
-                        // App Cards Grid
+                        // App Cards Grid (Flow for proper 2-col layout without overlapping)
                         ScrollView {
+                            id: appsScrollView
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
+                            contentWidth: availableWidth
 
-                            GridLayout {
-                                width: parent.width
-                                columns: 2
-                                rowSpacing: 6
-                                columnSpacing: 8
+                            function scrollToSelected() {
+                                if (!contentItem) return
+                                let row = Math.floor(appsPanel.selectedIndex / 2)
+                                let itemY = row * 64
+                                let itemH = 56
+                                let viewTop = contentItem.contentY
+                                let viewH = height
+                                if (itemY < viewTop) {
+                                    contentItem.contentY = Math.max(0, itemY - 6)
+                                } else if (itemY + itemH > viewTop + viewH) {
+                                    contentItem.contentY = Math.min(contentItem.contentHeight - viewH, itemY + itemH - viewH + 6)
+                                }
+                            }
+
+                            Flow {
+                                id: appsFlow
+                                width: appsScrollView.availableWidth
+                                spacing: 8
 
                                 Repeater {
                                     model: appsPanel.currentApps
 
                                     delegate: Rectangle {
                                         required property var modelData
-                                        Layout.fillWidth: true
-                                        height: 52
+                                        required property int index
+                                        readonly property bool isSelected: appsPanel.selectedIndex === index
+                                        // Each card = half the Flow width minus half the spacing
+                                        width: (appsFlow.width - 8) / 2
+                                        height: 56
                                         radius: 10
-                                        color: appCardMouse.containsMouse ? theme.surfaceHover : theme.surface
-                                        border.color: appCardMouse.containsMouse ? theme.borderLight : theme.border
-                                        border.width: 1
+                                        color: isSelected ? theme.accentSurface : (appCardMouse.containsMouse ? theme.surfaceHover : theme.surface)
+                                        border.color: isSelected ? theme.accent : (appCardMouse.containsMouse ? theme.borderLight : theme.border)
+                                        border.width: isSelected ? 1.5 : 1
+                                        clip: true
 
                                         RowLayout {
                                             anchors.fill: parent
-                                            anchors.margins: 8
+                                            anchors.margins: 10
                                             spacing: 10
 
                                             // Icon Container
@@ -2386,21 +2693,24 @@ ShellRoot {
                                                 width: 36
                                                 height: 36
                                                 radius: 8
-                                                color: "#141414"
+                                                color: "#0f0f0f"
+                                                Layout.preferredWidth: 36
+                                                Layout.preferredHeight: 36
 
                                                 Image {
                                                     id: appImg
-                                                    anchors.centerIn: parent
-                                                    width: 26
-                                                    height: 26
+                                                    anchors.fill: parent
+                                                    anchors.margins: 4
                                                     fillMode: Image.PreserveAspectFit
                                                     source: modelData.icon_path ? ("file://" + modelData.icon_path) : ""
                                                     visible: status === Image.Ready
+                                                    smooth: true
+                                                    mipmap: true
                                                 }
 
                                                 Text {
                                                     anchors.centerIn: parent
-                                                    visible: !modelData.icon_path || appImg.status !== Image.Ready
+                                                    visible: !appImg.visible || appImg.status !== Image.Ready
                                                     text: root.getAppIcon(modelData.icon, modelData.name)
                                                     font.pixelSize: 18
                                                     color: theme.accent
@@ -2417,7 +2727,7 @@ ShellRoot {
                                                     text: modelData.name
                                                     font.pixelSize: 12
                                                     font.bold: true
-                                                    color: theme.text
+                                                    color: isSelected ? theme.accent : theme.text
                                                     elide: Text.ElideRight
                                                 }
 
@@ -2436,10 +2746,533 @@ ShellRoot {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
+                                            onEntered: appsPanel.selectedIndex = index
                                             onClicked: {
                                                 sysStats.launchApp(modelData.exec)
-                                                root.activePopup = ""
+                                                root.closePopup(false)
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL E: CLIPBOARD HISTORY UI (Ability to see & paste photos + text)
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: clipboardPanel
+                    readonly property bool isShown: root.activePopup === "clipboard" && !root.isPopupClosing
+                    visible: root.displayedPopup === "clipboard"
+
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: 560
+                    height: 540
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: clipboardPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    property string searchQuery: ""
+                    property string activeFilter: "All"
+                    property int selectedIndex: 0
+
+                    function resetSearch() {
+                        searchQuery = ""
+                        activeFilter = "All"
+                        selectedIndex = 0
+                        if (clipSearchInput) {
+                            clipSearchInput.text = ""
+                            clipSearchInput.forceActiveFocus()
+                        }
+                        currentClips = getFilteredClips()
+                        if (clipListView) {
+                            clipListView.positionViewAtIndex(0, ListView.Beginning)
+                        }
+                    }
+
+                    function getFilteredClips() {
+                        let list = sysStats.clipboardList || []
+                        let q = searchQuery.toLowerCase().trim()
+                        let f = activeFilter
+                        return list.filter(item => {
+                            if (f === "Text" && item.type !== "text") return false
+                            if (f === "Images" && item.type !== "image") return false
+                            if (!q) return true
+                            return (item.preview && item.preview.toLowerCase().includes(q)) ||
+                                   (item.dims && item.dims.toLowerCase().includes(q)) ||
+                                   (item.size && item.size.toLowerCase().includes(q))
+                        })
+                    }
+
+                    property var currentClips: getFilteredClips()
+
+                    onSearchQueryChanged: {
+                        currentClips = getFilteredClips()
+                        selectedIndex = 0
+                        if (clipListView) clipListView.positionViewAtIndex(0, ListView.Beginning)
+                    }
+                    onActiveFilterChanged: {
+                        currentClips = getFilteredClips()
+                        selectedIndex = 0
+                        if (clipListView) clipListView.positionViewAtIndex(0, ListView.Beginning)
+                    }
+                    Connections {
+                        target: sysStats
+                        function onClipboardListChanged() {
+                            clipboardPanel.currentClips = clipboardPanel.getFilteredClips()
+                        }
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            resetSearch()
+                            sysStats.loadClipboard()
+                        }
+                    }
+
+                    onIsShownChanged: {
+                        if (isShown) {
+                            resetSearch()
+                            sysStats.loadClipboard()
+                        }
+                    }
+
+                    onSelectedIndexChanged: {
+                        if (clipListView && selectedIndex >= 0 && selectedIndex < currentClips.length) {
+                            clipListView.positionViewAtIndex(selectedIndex, ListView.Contain)
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+
+                        // Header
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: "󰅍"
+                                font.pixelSize: 18
+                                color: theme.accent
+                            }
+
+                            Text {
+                                text: "Clipboard History"
+                                font.pixelSize: 16
+                                font.bold: true
+                                color: theme.text
+                            }
+
+                            Rectangle {
+                                height: 20
+                                radius: 10
+                                color: theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                width: clipCountText.implicitWidth + 12
+
+                                Text {
+                                    id: clipCountText
+                                    anchors.centerIn: parent
+                                    text: `${clipboardPanel.currentClips.length} items`
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: theme.textMuted
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            // Clear All Button
+                            Rectangle {
+                                height: 26
+                                radius: 13
+                                color: clearClipsHov.containsMouse ? "#2d1419" : theme.surface
+                                border.color: clearClipsHov.containsMouse ? theme.danger : theme.border
+                                border.width: 1
+                                width: clearClipsRow.implicitWidth + 14
+
+                                RowLayout {
+                                    id: clearClipsRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Text {
+                                        text: "󰆴"
+                                        font.pixelSize: 11
+                                        color: clearClipsHov.containsMouse ? theme.danger : theme.textMuted
+                                    }
+                                    Text {
+                                        text: "Clear"
+                                        font.pixelSize: 11
+                                        color: clearClipsHov.containsMouse ? theme.danger : theme.textMuted
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: clearClipsHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: sysStats.clearClipboard()
+                                }
+                            }
+
+                            Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: closeClipHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeClipHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        // Search Box
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 38
+                            radius: 10
+                            color: theme.surface
+                            border.color: clipSearchInput.activeFocus ? theme.accent : theme.border
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 8
+
+                                Text {
+                                    text: "󰍉"
+                                    font.pixelSize: 14
+                                    color: clipSearchInput.activeFocus ? theme.accent : theme.textMuted
+                                }
+
+                                TextInput {
+                                    id: clipSearchInput
+                                    Layout.fillWidth: true
+                                    font.pixelSize: 13
+                                    color: theme.text
+                                    selectByMouse: true
+                                    clip: true
+
+                                    Text {
+                                        anchors.fill: parent
+                                        text: "Search clipboard history (text, links, images)..."
+                                        font.pixelSize: 13
+                                        color: theme.textMuted
+                                        visible: !parent.text && !parent.activeFocus
+                                    }
+
+                                    onTextChanged: clipboardPanel.searchQuery = text
+
+                                    Keys.onEscapePressed: root.closePopup(false)
+                                    Keys.onReturnPressed: {
+                                        if (clipboardPanel.currentClips.length > 0) {
+                                            let idx = Math.max(0, Math.min(clipboardPanel.selectedIndex, clipboardPanel.currentClips.length - 1))
+                                            sysStats.copyClipboard(clipboardPanel.currentClips[idx].id, true)
+                                            root.closePopup(false)
+                                        }
+                                    }
+                                    Keys.onDownPressed: {
+                                        if (clipboardPanel.currentClips.length > 0) {
+                                            clipboardPanel.selectedIndex = Math.min(clipboardPanel.currentClips.length - 1, clipboardPanel.selectedIndex + 1)
+                                        }
+                                    }
+                                    Keys.onUpPressed: {
+                                        if (clipboardPanel.currentClips.length > 0) {
+                                            clipboardPanel.selectedIndex = Math.max(0, clipboardPanel.selectedIndex - 1)
+                                        }
+                                    }
+                                    Keys.onTabPressed: {
+                                        if (clipboardPanel.currentClips.length > 0) {
+                                            clipboardPanel.selectedIndex = (clipboardPanel.selectedIndex + 1) % clipboardPanel.currentClips.length
+                                        }
+                                    }
+                                    Keys.onBacktabPressed: {
+                                        if (clipboardPanel.currentClips.length > 0) {
+                                            clipboardPanel.selectedIndex = (clipboardPanel.selectedIndex - 1 + clipboardPanel.currentClips.length) % clipboardPanel.currentClips.length
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: clipSearchInput.text !== ""
+                                    width: 18; height: 18; radius: 9
+                                    color: clearClipSearchHov.containsMouse ? theme.surfaceHover : "transparent"
+                                    Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 10; color: theme.textMuted }
+                                    MouseArea {
+                                        id: clearClipSearchHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            clipSearchInput.text = ""
+                                            clipSearchInput.forceActiveFocus()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Filter Pills (All, Text, Images)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Repeater {
+                                model: ["All", "Text", "Images"]
+
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    height: 24
+                                    radius: 12
+                                    readonly property bool isSelected: clipboardPanel.activeFilter === modelData
+                                    color: isSelected ? theme.accentSurface : (filterHov.containsMouse ? theme.surfaceHover : theme.surface)
+                                    border.color: isSelected ? theme.accent : theme.border
+                                    border.width: 1
+                                    width: filterText.implicitWidth + 18
+
+                                    RowLayout {
+                                        id: filterText
+                                        anchors.centerIn: parent
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData === "Images" ? "󰋩" : (modelData === "Text" ? "󰦨" : "󰅍")
+                                            font.pixelSize: 11
+                                            color: parent.parent.isSelected ? theme.accent : theme.textMuted
+                                        }
+
+                                        Text {
+                                            text: modelData
+                                            font.pixelSize: 11
+                                            font.weight: parent.parent.isSelected ? Font.Bold : Font.Normal
+                                            color: parent.parent.isSelected ? theme.accent : theme.textMuted
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: filterHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            clipboardPanel.activeFilter = modelData
+                                            clipSearchInput.forceActiveFocus()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Clipboard List View
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+
+                            ListView {
+                                id: clipListView
+                                width: parent.width
+                                spacing: 8
+                                model: clipboardPanel.currentClips
+                                currentIndex: clipboardPanel.selectedIndex
+
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    required property int index
+                                    readonly property bool isSelected: clipboardPanel.selectedIndex === index
+                                    readonly property bool isImg: modelData.type === "image"
+                                    width: parent.width
+                                    height: isImg ? 108 : 58
+                                    radius: 10
+                                    color: isSelected ? theme.accentSurface : (clipItemMouse.containsMouse ? theme.surfaceHover : theme.surface)
+                                    border.color: isSelected ? theme.accent : (clipItemMouse.containsMouse ? theme.borderLight : theme.border)
+                                    border.width: isSelected ? 1.5 : 1
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        spacing: 12
+
+                                        // Left Visual: Thumbnail (if image) or Icon (if text)
+                                        Rectangle {
+                                            Layout.preferredWidth: isImg ? 92 : 40
+                                            Layout.fillHeight: true
+                                            radius: 8
+                                            color: "#121212"
+                                            clip: true
+
+                                            Image {
+                                                anchors.fill: parent
+                                                visible: isImg
+                                                fillMode: Image.PreserveAspectFit
+                                                source: isImg && modelData.thumb ? ("file://" + modelData.thumb) : ""
+                                                asynchronous: true
+                                                smooth: true
+                                            }
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                visible: !isImg
+                                                text: "󰦨"
+                                                font.pixelSize: 16
+                                                color: theme.accent
+                                            }
+                                        }
+
+                                        // Center Content: Info & Text/Image description
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            Layout.alignment: Qt.AlignVCenter
+                                            spacing: 4
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+                                                visible: isImg
+
+                                                Text {
+                                                    text: "󰋩 Image"
+                                                    font.pixelSize: 12
+                                                    font.bold: true
+                                                    color: theme.text
+                                                }
+
+                                                Rectangle {
+                                                    visible: !!modelData.dims
+                                                    height: 18
+                                                    radius: 4
+                                                    color: theme.accentSurface
+                                                    border.color: theme.accent
+                                                    border.width: 1
+                                                    width: dimsText.implicitWidth + 8
+
+                                                    Text {
+                                                        id: dimsText
+                                                        anchors.centerIn: parent
+                                                        text: modelData.dims || ""
+                                                        font.pixelSize: 9
+                                                        font.bold: true
+                                                        color: theme.accent
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: modelData.size || ""
+                                                    font.pixelSize: 10
+                                                    color: theme.textMuted
+                                                }
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: isImg ? "Click to paste image into active window" : modelData.preview
+                                                font.pixelSize: 12
+                                                font.family: !isImg ? "monospace" : ""
+                                                color: isImg ? theme.textMuted : theme.text
+                                                elide: Text.ElideRight
+                                                maximumLineCount: 2
+                                                wrapMode: Text.WrapAnywhere
+                                            }
+                                        }
+
+                                        // Actions: Copy & Delete
+                                        RowLayout {
+                                            spacing: 6
+
+                                             Rectangle {
+                                                width: 30; height: 30; radius: 15
+                                                color: copyHov.containsMouse ? theme.accentSurface : "transparent"
+                                                border.color: copyHov.containsMouse ? theme.accent : "transparent"
+                                                border.width: 1
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: "󰆏"
+                                                    font.pixelSize: 13
+                                                    color: copyHov.containsMouse ? theme.accent : theme.textMuted
+                                                }
+
+                                                MouseArea {
+                                                    id: copyHov
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        sysStats.copyClipboard(modelData.id, true)
+                                                        root.closePopup(false)
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                width: 30; height: 30; radius: 15
+                                                color: delHov.containsMouse ? "#2d1419" : "transparent"
+                                                border.color: delHov.containsMouse ? theme.danger : "transparent"
+                                                border.width: 1
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: "󰆴"
+                                                    font.pixelSize: 13
+                                                    color: delHov.containsMouse ? theme.danger : theme.textMuted
+                                                }
+
+                                                MouseArea {
+                                                    id: delHov
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: sysStats.deleteClipboard(modelData.id)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: clipItemMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onEntered: clipboardPanel.selectedIndex = index
+                                        onClicked: {
+                                            sysStats.copyClipboard(modelData.id, true)
+                                            root.closePopup(false)
                                         }
                                     }
                                 }

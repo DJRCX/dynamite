@@ -6,6 +6,7 @@ import os
 import glob
 import time
 import shlex
+import re
 
 CONFIG_PATH = os.path.expanduser("~/.config/quickshell/simple-bar/config.json")
 
@@ -60,27 +61,70 @@ def clean_app_name(app_id, title=""):
         return app_id.split('.')[-1].capitalize()
     return app_id.capitalize()
 
+KNOWN_IMAGE_EXTS = {'.png', '.svg', '.xpm', '.ico'}
+
+ICON_SEARCH_DIRS = [
+    # 1. User application icons (PWAs, custom AppImages, Grok, WhatsApp, etc.)
+    os.path.expanduser('~/.local/share/icons/hicolor/512x512/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/256x256/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/128x128/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/scalable/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/64x64/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/48x48/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/32x32/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/24x24/apps'),
+    os.path.expanduser('~/.local/share/icons/hicolor/16x16/apps'),
+    os.path.expanduser('~/.local/share/pixmaps'),
+
+    # 2. System hicolor (App developers' official bundled full-color icons)
+    '/usr/share/icons/hicolor/scalable/apps',
+    '/usr/share/icons/hicolor/512x512/apps',
+    '/usr/share/icons/hicolor/256x256/apps',
+    '/usr/share/icons/hicolor/128x128/apps',
+    '/usr/share/icons/hicolor/64x64/apps',
+    '/usr/share/icons/hicolor/48x48/apps',
+    '/usr/share/icons/hicolor/32x32/apps',
+    '/usr/share/icons/hicolor/24x24/apps',
+    '/usr/share/icons/hicolor/16x16/apps',
+
+    # 3. Full-color system themes (Papirus, Breeze, Adwaita, Pixmaps)
+    '/usr/share/icons/Papirus/128x128/apps',
+    '/usr/share/icons/Papirus/64x64/apps',
+    '/usr/share/icons/Papirus/48x48/apps',
+    '/usr/share/icons/Papirus-Dark/128x128/apps',
+    '/usr/share/icons/Papirus-Dark/64x64/apps',
+    '/usr/share/icons/Papirus-Dark/48x48/apps',
+    '/usr/share/icons/breeze/apps/48',
+    '/usr/share/icons/breeze-dark/apps/48',
+    '/usr/share/icons/Adwaita/scalable/apps',
+    '/usr/share/icons/Adwaita/48x48/apps',
+    '/usr/share/pixmaps',
+
+    # 4. Fallback only if no color icon exists anywhere
+    os.path.expanduser('~/.local/share/icons/yet-another-monochrome-icon-set/apps/scalable'),
+    os.path.expanduser('~/.local/share/icons/yet-another-monochrome-icon-set/devices/scalable'),
+]
+ICON_DIRS = [d for d in ICON_SEARCH_DIRS if os.path.exists(d)]
+
+def resolve_icon(icon_name):
+    if not icon_name: return ''
+    if os.path.isabs(icon_name) and os.path.exists(icon_name): return icon_name
+    if icon_name.startswith('~'):
+        p = os.path.expanduser(icon_name)
+        if os.path.exists(p): return p
+
+    name_lower = icon_name.lower()
+    has_known_ext = any(name_lower.endswith(e) for e in KNOWN_IMAGE_EXTS)
+    base_name = os.path.splitext(icon_name)[0] if has_known_ext else icon_name
+
+    exts = ['', '.png', '.svg', '.xpm']
+    for d in ICON_DIRS:
+        for e in exts:
+            p = os.path.join(d, base_name + e)
+            if os.path.exists(p): return p
+    return ''
+
 def get_installed_apps():
-    icon_dirs = [
-        '/usr/share/pixmaps',
-        '/usr/share/icons/hicolor/scalable/apps',
-        '/usr/share/icons/hicolor/48x48/apps',
-        '/usr/share/icons/hicolor/128x128/apps',
-        '/usr/share/icons/hicolor/256x256/apps',
-        '/usr/share/icons/hicolor/32x32/apps',
-        '/usr/share/icons/Adwaita/scalable/apps',
-        '/usr/share/icons/breeze/apps/48'
-    ]
-
-    def resolve_icon(icon_name):
-        if not icon_name: return ''
-        if os.path.isabs(icon_name) and os.path.exists(icon_name): return icon_name
-        for d in icon_dirs:
-            for ext in ['', '.png', '.svg', '.xpm']:
-                p = os.path.join(d, icon_name + ext)
-                if os.path.exists(p): return p
-        return ''
-
     apps = []
     seen = set()
     dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
@@ -130,7 +174,16 @@ def get_installed_apps():
     return apps
 
 def stream_wm():
-    state = {'focused_app': '', 'focused_app_name': '', 'focused_title': '', 'active_ws': 1, 'workspaces': [], 'windows': {}}
+    def resolve_focused_icon(app_id):
+        if not app_id: return ''
+        candidates = [app_id, app_id.lower(), app_id.split('.')[-1].lower() if '.' in app_id else '']
+        for name in candidates:
+            if not name: continue
+            found = resolve_icon(name)
+            if found: return found
+        return ''
+
+    state = {'focused_app': '', 'focused_app_name': '', 'focused_title': '', 'focused_icon_path': '', 'active_ws': 1, 'workspaces': [], 'windows': {}}
     
     def emit(ws_event=False):
         print(json.dumps({
@@ -138,6 +191,7 @@ def stream_wm():
             'focused_app': state['focused_app'],
             'focused_app_name': state['focused_app_name'],
             'focused_title': state['focused_title'],
+            'focused_icon_path': state['focused_icon_path'],
             'active_ws': state['active_ws'],
             'workspaces': state['workspaces'],
             'ws_event': ws_event
@@ -152,6 +206,7 @@ def stream_wm():
                 state['focused_app'] = w.get('app_id', '')
                 state['focused_app_name'] = clean_app_name(state['focused_app'], w.get('title', ''))
                 state['focused_title'] = w.get('title', '')
+                state['focused_icon_path'] = resolve_focused_icon(state['focused_app'])
     except Exception:
         pass
 
@@ -167,6 +222,63 @@ def stream_wm():
         pass
 
     emit(ws_event=False)
+
+    # Hardware event monitoring for instant Volume and Brightness feedback
+    import threading
+
+    def monitor_audio():
+        last_v, last_m = None, None
+        try:
+            p = subprocess.Popen(['pactl', 'subscribe'], stdout=subprocess.PIPE, text=True)
+            for line in p.stdout:
+                if 'sink' in line or 'change' in line:
+                    try:
+                        wp_res = subprocess.run(['wpctl', 'get-volume', '@DEFAULT_AUDIO_SINK@'], capture_output=True, text=True, timeout=1)
+                        out = wp_res.stdout.strip()
+                        muted = 'MUTED' in out
+                        parts = out.split()
+                        vol = round(float(parts[1]) * 100) if len(parts) >= 2 else 50
+                        if last_v is not None and (vol != last_v or muted != last_m):
+                            print(json.dumps({'type': 'volume', 'volume': vol, 'muted': muted}), flush=True)
+                        last_v, last_m = vol, muted
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def monitor_brightness():
+        last_b = None
+        bl_file = '/sys/class/backlight/intel_backlight/actual_brightness'
+        max_file = '/sys/class/backlight/intel_backlight/max_brightness'
+        has_bl = os.path.exists(bl_file) and os.path.exists(max_file)
+        max_val = 1
+        if has_bl:
+            try:
+                with open(max_file) as f:
+                    max_val = int(f.read().strip()) or 1
+            except Exception:
+                has_bl = False
+
+        while True:
+            try:
+                if has_bl:
+                    with open(bl_file) as f:
+                        cur = int(f.read().strip())
+                    pct = round(cur * 100 / max_val)
+                else:
+                    br_res = subprocess.run(['brightnessctl', '-m'], capture_output=True, text=True, timeout=1)
+                    parts = br_res.stdout.strip().split(',')
+                    pct = int(parts[3].replace('%', '')) if len(parts) >= 4 else 50
+
+                if last_b is not None and pct != last_b:
+                    print(json.dumps({'type': 'brightness', 'brightness': pct}), flush=True)
+                last_b = pct
+            except Exception:
+                pass
+            time.sleep(0.15)
+
+    threading.Thread(target=monitor_audio, daemon=True).start()
+    threading.Thread(target=monitor_brightness, daemon=True).start()
 
     # Niri Event Stream
     try:
@@ -212,6 +324,7 @@ def stream_wm():
                         state['focused_app'] = new_app
                         state['focused_app_name'] = clean_app_name(new_app, new_title)
                         state['focused_title'] = new_title
+                        state['focused_icon_path'] = resolve_focused_icon(new_app)
                         changed = True
 
                 elif key == 'WindowFocusChanged':
@@ -227,6 +340,7 @@ def stream_wm():
                         state['focused_app'] = new_app
                         state['focused_app_name'] = clean_app_name(new_app, new_title)
                         state['focused_title'] = new_title
+                        state['focused_icon_path'] = resolve_focused_icon(new_app)
                         changed = True
 
                 elif key == 'WindowOpenedOrChanged':
@@ -239,6 +353,7 @@ def stream_wm():
                             state['focused_app'] = new_app
                             state['focused_app_name'] = clean_app_name(new_app, new_title)
                             state['focused_title'] = new_title
+                            state['focused_icon_path'] = resolve_focused_icon(new_app)
                             changed = True
 
                 elif key == 'WindowClosed':
@@ -400,6 +515,87 @@ def get_status():
         }
     }
 
+def get_clipboard_items(limit=100):
+    try:
+        res = subprocess.run(['cliphist', 'list'], capture_output=True, text=True, errors='replace', timeout=2)
+        lines = res.stdout.splitlines()[:limit]
+    except Exception:
+        return []
+
+    thumb_dir = '/tmp/cliphist-previews'
+    os.makedirs(thumb_dir, exist_ok=True)
+    items = []
+
+    for line in lines:
+        parts = line.split('\t', 1)
+        if len(parts) < 2:
+            continue
+        cid = parts[0].strip()
+        raw = parts[1].strip()
+        is_img = bool(re.search(r'\[\[.*binary data.*\]\]', raw))
+        if is_img:
+            dims_match = re.search(r'(\d+x\d+)', raw)
+            dims = dims_match.group(1) if dims_match else ''
+            size_match = re.search(r'(\d+\s*[KkMmGg]?[iI]?[bB])', raw)
+            size_str = size_match.group(1) if size_match else ''
+            thumb_path = f'{thumb_dir}/{cid}.png'
+            if not os.path.exists(thumb_path):
+                try:
+                    with open(thumb_path, 'wb') as f:
+                        subprocess.run(['cliphist', 'decode', cid], stdout=f, timeout=1.5)
+                except Exception:
+                    pass
+            items.append({
+                'id': cid,
+                'type': 'image',
+                'dims': dims,
+                'size': size_str,
+                'thumb': thumb_path,
+                'preview': f'Image ({dims})' if dims else 'Copied Image'
+            })
+        else:
+            items.append({
+                'id': cid,
+                'type': 'text',
+                'preview': raw[:220].replace('\n', ' ↵ ')
+            })
+    return items
+
+def copy_clipboard_item(cid, auto_paste=True):
+    try:
+        p1 = subprocess.Popen(['cliphist', 'decode', str(cid)], stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(['wl-copy'], stdin=p1.stdout)
+        p1.stdout.close()
+        p2.wait()
+        if auto_paste:
+            time.sleep(0.08)
+            subprocess.Popen(['wtype', '-M', 'ctrl', '-k', 'v', '-m', 'ctrl'])
+        return True
+    except Exception:
+        return False
+
+def delete_clipboard_item(cid):
+    try:
+        subprocess.run(f"cliphist decode '{cid}' | cliphist delete", shell=True, timeout=2)
+        thumb_path = f'/tmp/cliphist-previews/{cid}.png'
+        if os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+def clear_clipboard():
+    try:
+        subprocess.run(['cliphist', 'wipe'], timeout=2)
+        import shutil
+        shutil.rmtree('/tmp/cliphist-previews', ignore_errors=True)
+        return True
+    except Exception:
+        return False
+
 def main():
     if len(sys.argv) <= 1 or sys.argv[1] == "status":
         print(json.dumps(get_status()))
@@ -492,6 +688,36 @@ def main():
     elif cmd == "toggle-mute":
         subprocess.run(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'], capture_output=True)
         print(json.dumps(get_status()))
+
+    elif cmd == "get-clipboard":
+        print(json.dumps(get_clipboard_items()))
+
+    elif cmd == "copy-clipboard" and len(sys.argv) > 2:
+        cid = sys.argv[2]
+        paste = sys.argv[3].lower() == 'true' if len(sys.argv) > 3 else False
+        ok = copy_clipboard_item(cid, auto_paste=paste)
+        print(json.dumps({"status": "ok" if ok else "error", "id": cid}))
+
+    elif cmd == "delete-clipboard" and len(sys.argv) > 2:
+        cid = sys.argv[2]
+        ok = delete_clipboard_item(cid)
+        print(json.dumps({"status": "ok" if ok else "error", "id": cid}))
+
+    elif cmd == "clear-clipboard":
+        ok = clear_clipboard()
+        print(json.dumps({"status": "ok" if ok else "error"}))
+
+    elif cmd == "power-action" and len(sys.argv) > 2:
+        action = sys.argv[2]
+        if action == "lock":
+            subprocess.Popen(['swaylock', '-f'])
+        elif action == "sleep":
+            subprocess.Popen(['systemctl', 'suspend'])
+        elif action == "reboot":
+            subprocess.Popen(['systemctl', 'reboot'])
+        elif action == "poweroff":
+            subprocess.Popen(['systemctl', 'poweroff'])
+        print(json.dumps({"status": "ok", "action": action}))
 
 if __name__ == "__main__":
     main()
