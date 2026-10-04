@@ -28,6 +28,35 @@ A comprehensive record of all features implemented, bugs investigated, root caus
 
 ## 2. Major Features Implemented
 
+### 🎨 Wallpaper Management & Dynamic Theming Service
+* **Zero-Dependency Python PIL Color Engine (`scripts/theme.py`)**:
+  * Extracts dominant vibrant accents, secondary tones, and contrast-checked text tokens directly from the desktop wallpaper image.
+  * Generates 6-color representative swatches for interactive accent customization in the UI.
+  * Supports **Pitch Black + Wallpaper Accent** mode (preserves `#000000` pitch black background while tinting active elements) and **Vibrant Tinted Dark** mode (subtly tints panel surfaces and cards).
+* **Randomized Animated Transitions via `awww`**:
+  * Dynamic transition engine supporting `wipe` (random angles 30°–315°), `fade`, `grow` (random focal centers), `wave`, `outer`, and directional wipes.
+  * Smooth 60fps rendering with 1.2s duration.
+* **Wallhaven.cc Online Explorer with 12-Image Pagination**:
+  * Direct integration with the Wallhaven API (`https://wallhaven.cc/api/v1/search`) without requiring API keys for public SFW wallpapers.
+  * In-pill search box, category filters (`Toplist`, `Hot`, `Latest`, `Random`), and aspect ratio optimization (`16x9`, `16x10`).
+  * **12-Image Pagination**: Translates UI pages to Wallhaven 24-item API responses (`api_page = ((ui_page - 1) // 2) + 1`), with local response caching and dynamic API pinging across boundaries.
+  * Includes First (`󰁍󰁍`), Prev (`󰁍 Prev`), Page Indicator (`Page X of Y (12 / page)`), and Next (`Next 󰁔`) controls.
+  * 1-Click apply flow: downloads full-res files into `~/Pictures/Wallpapers/`, applies them via `awww` with randomized transition, and extracts color palette immediately.
+* **Live Dynamic Terminal Theming (Kitty & Foot)**:
+  * Generates `~/.config/kitty/current-theme.conf` (included by `~/.config/kitty/kitty.conf`) and `~/.config/foot/colors.ini` automatically upon any theme or wallpaper change.
+  * Maps full 16-color ANSI terminal palette harmonized with wallpaper swatches.
+  * Sends `pkill -USR1 kitty` on update, live-reloading all running Kitty windows without closing sessions or tabs.
+* **Persistent Autostart & Wallpaper Memory**:
+  * Added `awww-daemon.service` user unit with `ExecStartPost` hook triggering `python3 scripts/theme.py init`.
+  * Restores the last active wallpaper from `config.json` automatically on login, ensuring `awww-daemon` is always running and the desktop background is preserved across reboots.
+  * Added to Niri's `config.d/50-startup.kdl` and enabled under `graphical-session.target`.
+* **Instant Reactivity via `wm-stream` IPC**:
+  * Background wallpaper monitor detects external wallpaper changes (via terminal or external script) within 2 seconds and emits `{"type": "theme", ...}` events over stdout.
+  * Quickshell UI dynamically rebinds colors live with zero restart required.
+* **Dedicated 560px Flush Flyout Panel (`wallpaperPanel`)**:
+  * Segmented tabs for Local Library and Wallhaven Online.
+  * Instant access via Workspace 1 status pill button (`󰸉`) and IPC handler (`qs ipc call wallpaper toggle`).
+
 ### 🚀 Integrated Application Launcher
 * **Categorized App Drawer**: Displays applications categorized into `All`, `System`, `Development`, `Internet`, `Media`, `Office`, and `Utility`.
 * **Full Keyboard Navigation**:
@@ -171,12 +200,39 @@ A comprehensive record of all features implemented, bugs investigated, root caus
 
 ---
 
+### 🐛 Bug 10: Workspace 0 Status Balls Failed to Open Flyouts on Click
+* **Symptom**: Clicking `leftBall` (Wi-Fi/Bluetooth) or `rightBall` (Battery/Power) in the primary overview workspace did not open any panels.
+* **Root Cause**: `leftBallMouse` and `rightBallMouse` directly assigned `root.activePopup = "wifi"` / `"battery"` instead of calling `root.togglePopup(...)`. This bypassed updating `root.displayedPopup`, leaving `connPanel` and `batteryPanel` hidden (`visible: root.displayedPopup === "..."`).
+* **Fix**: Updated both click handlers to invoke `root.togglePopup("wifi")` and `root.togglePopup("battery")`.
+
+---
+
+### 🐛 Bug 11: Notification Pill Click Triggered Action Without Showing Details
+* **Symptom**: Clicking an in-pill notification toast immediately executed its default action and dismissed the toast, preventing users from reading multi-line message contents.
+* **Fix**: Updated `onClicked` in `toastContainer`: left-click now dismisses the toast from the pill and immediately opens the full **Notifications History Panel** (`root.openPopup("notifications")`) to view complete details, actions, and timestamps. Right-click dismisses the notification.
+
+---
+
+### 🐛 Bug 12: Duplicate QML ID Collision in Wallhaven Pagination
+* **Symptom**: Quickshell configuration reload failed with `@shell.qml[6659:45]: id is not unique`.
+* **Root Cause**: MouseArea and RowLayout IDs (`prevHov`, `nextHov`, `firstHov`, `prevRow`, `nextRow`) collided with month navigation controls in `calendarPanel`.
+* **Fix**: Prefixed all pagination IDs with `whPg` (`whPgFirstHov`, `whPgPrevRow`, `whPgPrevHov`, `whPgNextRow`, `whPgNextHov`).
+
+---
+
+### 🐛 Bug 13: Terminal Emulators (Kitty) Lost Theme
+* **Symptom**: Kitty terminal launched unstyled with fallback default colors after desktop theming was introduced.
+* **Root Cause**: `~/.config/kitty/kitty.conf` included `current-theme.conf`, which did not exist on disk and was never populated by any theme manager.
+* **Fix**: Added `export_terminal_themes()` to `scripts/theme.py`, dynamically writing `~/.config/kitty/current-theme.conf` and `~/.config/foot/colors.ini` with 16-color ANSI mappings, and triggering `pkill -USR1 kitty` for zero-restart live reload.
+
+---
+
 ## 4. Bar-Workspaces System (v2.0)
 
 | Workspace | Purpose | Unhovered State | Hovered State | Click Interaction |
 |---|---|---|---|---|
 | **WS 0: Overview** | Primary desktop telemetry | Focused App Title, Clock + Date, Weather, Notification Bell | Reveals Launcher button, Balls, App Icon, Pager dots | • Focused App: Opens App Context Menu.<br>• Clock: Opens Unified Calendar.<br>• Bell: Opens Notifications History. |
-| **WS 1: Status & Controls** | Hardware & connectivity shortcuts | Clean icon row: Wi-Fi, Bluetooth, Caffeine, Battery, Brightness, Volume | Reveals descriptive labels and values beside each icon | • Wi-Fi/BT: Opens Connectivity.<br>• Bat/Br/Vol: Opens Battery & Device.<br>• Caffeine: Toggles idle inhibitor. |
+| **WS 1: Status & Controls** | Hardware & connectivity shortcuts | Clean icon row: Wi-Fi, Bluetooth, Caffeine, Battery, Brightness, Volume | Reveals descriptive labels and values beside each icon | • Wi-Fi/BT: Opens Connectivity.<br>• Bat/Br/Vol: Opens Battery & Device.<br>• Caffeine: Toggles idle inhibitor.<br>• Themes: Opens Wallpaper Manager. |
 | **WS 2: Media Player** | MPRIS player interface | Album art, track title, artist name | Reveals Previous / Next track buttons | Toggles Play / Pause. |
 | **WS 3: System Resources** | Live hardware vitals | CPU %, CPU Temp (°C), RAM usage, Swap usage | Reveals labels ("CPU", "Temp", "RAM", "Swap") | Opens detailed System Resources panel with `btop` launcher. |
 
@@ -188,8 +244,11 @@ A comprehensive record of all features implemented, bugs investigated, root caus
 
 | File | Changes |
 |---|---|
-| [`shell.qml`](shell.qml) | • Implemented 4-Workspace Bar system with smooth horizontal transition animations.<br>• Added native `NotificationServer` and horizontal in-pill toast HUD with hover clear button.<br>• Unified all 8 overlay panels (560px, flush against bar, zero margin, flat connecting corners).<br>• Added Focused App Context Menu with browser-specific actions.<br>• Added DND bell icon state (`󰂛`).<br>• Bound `Mod+Alt+Arrow` IPC handlers. |
-| [`scripts/control.py`](scripts/control.py) | • Added CPU temperature probing (`/sys/class/thermal`, `/sys/class/hwmon`).<br>• Added Swap memory calculation (`/proc/meminfo`).<br>• Added Caffeine inhibitor backend (`systemd-inhibit --what=idle:sleep ...`).<br>• Fixed detached subprocess execution to prevent EPIPE crashes in spawned apps. |
-| [`config.json`](config.json) | • Stores active bar rest position (`"top"` or `"bottom"`). |
-| [`install.sh`](install.sh) | • Added dependency verification for `systemd-inhibit` and audio/network utilities. |
-| [`CHANGELOG.md`](CHANGELOG.md) | • Complete documentation of v2.0 features, bugs, root causes, and fixes. |
+| [`shell.qml`](shell.qml) | • Added 560px flush `wallpaperPanel` with Local Library and Wallhaven tabs.<br>• Added Wallhaven 12-per-page pagination controls (`First`, `Prev`, `Next`, page counter).<br>• Fixed status balls click handlers to use `togglePopup()`.<br>• Enhanced in-pill notification click to expand full notification details.<br>• Added dynamic `themeManager` property bindings for live color updates. |
+| [`scripts/theme.py`](scripts/theme.py) | • Core wallpaper manager, Pillow color extraction, semantic token generator.<br>• Wallhaven API integration with aspect ratio/purity filters and sub-page slicing.<br>• Terminal theme generator for Kitty (`current-theme.conf`) and Foot (`colors.ini`) with `pkill -USR1 kitty`.<br>• Startup `init_wallpaper()` for daemon readiness check and remembered wallpaper restoration. |
+| [`scripts/control.py`](scripts/control.py) | • Added CLI dispatchers: `get-wallpapers`, `set-wallpaper`, `random-wallpaper`, `search-wallhaven`, `apply-wallhaven`, `get-theme`, `set-accent`, `set-theme-mode`, `init-wallpaper`.<br>• Added `monitor_wallpaper()` thread in `stream-wm` to broadcast live color updates.<br>• Added `init_wallpaper()` call on bar startup. |
+| [`systemd/awww-daemon.service`](systemd/awww-daemon.service) | • User service template for `awww-daemon` with `ExecStartPost` initialization hook. |
+| [`systemd/simple-bar.service`](systemd/simple-bar.service) | • User service template for `simple-bar` with `Wants=awww-daemon.service`. |
+| [`config.json`](config.json) | • Stores `position`, `wallpaper`, `wallpaper_dir`, `theme_mode`. |
+| [`install.sh`](install.sh) | • Added systemd user services installation and enabling step.<br>• Added executable permissions for `scripts/theme.py`. |
+| [`README.md`](README.md) & [`CHANGELOG.md`](CHANGELOG.md) | • Comprehensive documentation for wallpaper service, terminal theming, and autostart. |

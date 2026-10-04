@@ -8,6 +8,7 @@ __pycache__/
 *.log
 *.qslog
 /tmp/
+colors.json
 
 # Editor artifacts
 *~

@@ -1,0 +1,15 @@
+[Unit]
+Description=Quickshell Simple Bar
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=awww-daemon.service
+After=awww-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/qs -p %h/.config/quickshell/simple-bar
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

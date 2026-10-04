@@ -10,6 +10,12 @@ import re
 import shutil
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import theme
+except Exception as e:
+    theme = None
+
 CONFIG_PATH = os.path.expanduser("~/.config/quickshell/simple-bar/config.json")
 
 def detect_terminal():
@@ -394,8 +400,34 @@ def stream_wm():
                 pass
             time.sleep(0.15)
 
+    def monitor_wallpaper():
+        if not theme: return
+        try:
+            theme.init_wallpaper()
+        except Exception:
+            pass
+        last_wp = None
+        while True:
+            try:
+                cur_wp = theme.get_current_wallpaper()
+                if cur_wp and cur_wp != last_wp:
+                    mode = theme.load_config().get("theme_mode", "pitch_black")
+                    palette = theme.extract_palette(cur_wp, mode=mode)
+                    theme.save_theme_tokens(palette, cur_wp)
+                    print(json.dumps({
+                        'type': 'theme',
+                        'wallpaper': cur_wp,
+                        'colors': palette,
+                        'swatches': palette.get('palette', [])
+                    }), flush=True)
+                    last_wp = cur_wp
+            except Exception:
+                pass
+            time.sleep(2.0)
+
     threading.Thread(target=monitor_audio, daemon=True).start()
     threading.Thread(target=monitor_brightness, daemon=True).start()
+    threading.Thread(target=monitor_wallpaper, daemon=True).start()
 
     # Niri Event Stream
     try:
@@ -634,6 +666,20 @@ def get_status():
     except Exception:
         pass
 
+    theme_data = None
+    if theme:
+        try:
+            cur_wp = theme.get_current_wallpaper()
+            if os.path.exists(theme.COLORS_PATH):
+                with open(theme.COLORS_PATH, "r") as f:
+                    theme_data = json.load(f)
+            else:
+                pal = theme.extract_palette(cur_wp)
+                theme.save_theme_tokens(pal, cur_wp)
+                theme_data = {"wallpaper": cur_wp, "colors": pal}
+        except Exception:
+            pass
+
     return {
         "config": load_config(),
         "audio": {
@@ -664,7 +710,8 @@ def get_status():
         "swap": {
             "used": swap_used,
             "percent": swap_pct
-        }
+        },
+        "theme": theme_data
     }
 
 def get_clipboard_items(limit=100):
@@ -908,6 +955,93 @@ def main():
         else:
             subprocess.Popen("systemd-inhibit --what=idle:sleep --who=simple-bar-caffeine --why='User requested caffeine' sleep infinity", shell=True, start_new_session=True)
             print(json.dumps({"active": True}))
+
+    elif cmd == "get-wallpapers":
+        if theme:
+            folder = sys.argv[2] if len(sys.argv) > 2 else None
+            print(json.dumps(theme.list_local_wallpapers(folder)))
+        else:
+            print(json.dumps([]))
+
+    elif cmd == "set-wallpaper" and len(sys.argv) > 2:
+        if theme:
+            res = theme.set_wallpaper_image(sys.argv[2])
+            print(json.dumps(res))
+        else:
+            print(json.dumps({"status": "error", "message": "Theme module unavailable"}))
+
+    elif cmd == "random-wallpaper":
+        if theme:
+            res = theme.apply_random_wallpaper()
+            print(json.dumps(res))
+        else:
+            print(json.dumps({"status": "error", "message": "Theme module unavailable"}))
+
+    elif cmd == "search-wallhaven":
+        if theme:
+            q = sys.argv[2] if len(sys.argv) > 2 else ""
+            s = sys.argv[3] if len(sys.argv) > 3 else "toplist"
+            p = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+            print(json.dumps(theme.search_wallhaven(q, s, p)))
+        else:
+            print(json.dumps({"status": "error", "wallpapers": []}))
+
+    elif cmd == "apply-wallhaven" and len(sys.argv) > 3:
+        if theme:
+            res = theme.download_and_apply_wallhaven(sys.argv[2], sys.argv[3])
+            print(json.dumps(res))
+        else:
+            print(json.dumps({"status": "error", "message": "Theme module unavailable"}))
+
+    elif cmd == "init-wallpaper":
+        if theme:
+            print(json.dumps(theme.init_wallpaper()))
+        else:
+            print(json.dumps({"status": "error", "message": "Theme module unavailable"}))
+
+    elif cmd == "get-theme":
+        if theme:
+            if os.path.exists(theme.COLORS_PATH):
+                with open(theme.COLORS_PATH, "r") as f:
+                    content = f.read()
+                    print(content)
+                try:
+                    data = json.loads(content)
+                    theme.export_terminal_themes(data.get("colors", {}), data.get("wallpaper", ""))
+                except Exception:
+                    pass
+            else:
+                cur = theme.get_current_wallpaper()
+                pal = theme.extract_palette(cur)
+                theme.save_theme_tokens(pal, cur)
+                print(json.dumps({"wallpaper": cur, "colors": pal}))
+        else:
+            print(json.dumps({"colors": {}}))
+
+    elif cmd == "set-accent" and len(sys.argv) > 2:
+        if theme:
+            hex_code = sys.argv[2]
+            cur = theme.get_current_wallpaper()
+            cfg = theme.load_config()
+            mode = cfg.get("theme_mode", "pitch_black")
+            pal = theme.extract_palette(cur, mode=mode, custom_accent=hex_code)
+            theme.save_theme_tokens(pal, cur)
+            print(json.dumps({"status": "ok", "colors": pal}))
+        else:
+            print(json.dumps({"status": "error"}))
+
+    elif cmd == "set-theme-mode" and len(sys.argv) > 2:
+        if theme:
+            mode = sys.argv[2]
+            cfg = theme.load_config()
+            cfg["theme_mode"] = mode
+            theme.save_config(cfg)
+            cur = theme.get_current_wallpaper()
+            pal = theme.extract_palette(cur, mode=mode)
+            theme.save_theme_tokens(pal, cur)
+            print(json.dumps({"status": "ok", "mode": mode, "colors": pal}))
+        else:
+            print(json.dumps({"status": "error"}))
 
 if __name__ == "__main__":
     main()

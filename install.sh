@@ -60,7 +60,7 @@ check_dep "cliphist" "Clipboard history manager"
 check_dep "wl-copy" "Wayland clipboard utilities (wl-clipboard)"
 check_dep "wtype" "Wayland virtual keystroke simulation"
 
-echo -e "\n${BOLD}Checking optional companion utilities...${NC}"
+check_opt_dep "awww" "Wayland wallpaper daemon with animated transitions"
 check_opt_dep "blueman-manager" "Graphical Bluetooth manager"
 check_opt_dep "btop" "Terminal system & hardware monitor"
 
@@ -90,7 +90,8 @@ fi
 # 2. Ensure Scripts are Executable
 echo -e "\n${BOLD}[2/4] Setting permissions...${NC}"
 chmod +x "$SCRIPT_DIR/scripts/control.py"
-echo -e "  ${GREEN}✓${NC} scripts/control.py is executable"
+chmod +x "$SCRIPT_DIR/scripts/theme.py"
+echo -e "  ${GREEN}✓${NC} scripts/control.py & scripts/theme.py are executable"
 
 # 3. Link or Copy Configuration
 echo -e "\n${BOLD}[3/4] Linking configuration into Quickshell config directory...${NC}"
@@ -112,20 +113,27 @@ else
     echo -e "  ${GREEN}✓${NC} Symlinked $SCRIPT_DIR → $TARGET_DIR"
 fi
 
-# 4. Autostart Instructions
-echo -e "\n${BOLD}[4/4] Installation Complete! 🎉${NC}"
+# 4. Install Systemd User Services
+if command -v systemctl >/dev/null 2>&1; then
+    echo -e "\n${BOLD}[4/5] Setting up systemd user services...${NC}"
+    SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    mkdir -p "$SYSTEMD_USER_DIR"
+    cp -f "$SCRIPT_DIR/systemd/simple-bar.service" "$SYSTEMD_USER_DIR/"
+    cp -f "$SCRIPT_DIR/systemd/awww-daemon.service" "$SYSTEMD_USER_DIR/"
+    systemctl --user daemon-reload || true
+    systemctl --user enable awww-daemon.service || true
+    systemctl --user enable simple-bar.service || true
+    echo -e "  ${GREEN}✓${NC} Enabled awww-daemon.service & simple-bar.service"
+fi
+
+# 5. Autostart Instructions
+echo -e "\n${BOLD}[5/5] Installation Complete! 🎉${NC}"
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────${NC}"
 echo -e "${BOLD}To start the bar right now, run:${NC}"
-echo -e "  ${GREEN}qs -d -p $TARGET_DIR &${NC}"
+echo -e "  ${GREEN}systemctl --user start simple-bar.service${NC}  or  ${GREEN}qs -d -p $TARGET_DIR &${NC}"
 echo -e ""
-echo -e "${BOLD}To autostart with your Wayland compositor:${NC}"
-echo -e ""
-echo -e "  ${BOLD}Niri (${CYAN}~/.config/niri/config.kdl${NC}):"
-echo -e '    spawn-at-startup "qs" "-d" "-p" "'"$TARGET_DIR"'"'
-echo -e ""
-echo -e "  ${BOLD}Hyprland (${CYAN}~/.config/hypr/hyprland.conf${NC}):"
-echo -e "    exec-once = qs -d -p $TARGET_DIR"
-echo -e ""
-echo -e "  ${BOLD}Sway (${CYAN}~/.config/sway/config${NC}):"
-echo -e "    exec qs -d -p $TARGET_DIR"
+echo -e "${BOLD}Autostart:${NC}"
+echo -e "  awww-daemon & simple-bar services are enabled under graphical-session.target."
+echo -e "  In Niri, they start automatically on login via:"
+echo -e '    spawn-at-startup "systemctl" "--user" "start" "awww-daemon.service" "simple-bar.service"'
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────${NC}"

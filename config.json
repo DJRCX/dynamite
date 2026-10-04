@@ -1,5 +1,8 @@
 {
-  "position": "bottom",
+  "position": "top",
+  "wallpaper": "/home/djrcx/Pictures/Wallpapers/wallhaven-5yzd98.png",
+  "wallpaper_dir": "/home/djrcx/Pictures/Wallpapers",
+  "theme_mode": "pitch_black",
   "weather_lat": 23.7882,
   "weather_lon": 90.3736
 }

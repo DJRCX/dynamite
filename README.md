@@ -12,8 +12,16 @@
   - **Workspace 1 (Status & Controls)**: Wi-Fi, Bluetooth, Caffeine inhibitor, Battery, Brightness, and Volume.
   - **Workspace 2 (Media Player)**: MPRIS playback controls with track title and album art.
   - **Workspace 3 (System Resources)**: Real-time CPU %, CPU Temp (°C), RAM usage, and Swap usage with dedicated details popup.
-- **🔗 Seamless Unified Panels**: All 8 flyout panels (Apps, Clipboard, Calendar, Connectivity, Battery, System Resources, Notifications, App Context) expand to a flush 560px width with flattened connecting edges directly merging into the bar pill.
-- **🔔 Native Notification Server & In-Pill HUD**: Built-in notification server with single-line horizontal toast HUD, newline sanitization, and hover dismiss button.
+- **🎨 Wallpaper Management & Dynamic Theming**:
+  - **Zero-Dependency PIL Color Engine**: Extracts dominant vibrant accents, secondary tones, and contrast-tested tokens directly from the desktop wallpaper.
+  - **Randomized Animated Transitions**: Every wallpaper change runs a randomized `awww` transition effect (`wipe`, `fade`, `grow`, `wave`, `outer`) with randomized angles and focal points.
+  - **Wallhaven.cc Online Explorer**: Integrated online catalogue browser with keyword search, sorting presets (`Toplist`, `Hot`, `Latest`, `Random`), 12-images-per-page pagination, and 1-click downloading directly to `~/Pictures/Wallpapers/`.
+  - **Live Palette Swatches**: 6-color swatch chips to customize the primary accent, plus Pitch Black vs Tinted Dark modes.
+  - **Live Terminal Theming**: Automatically generates and syncs colors for **Kitty** (`current-theme.conf`) and **Foot** (`colors.ini`), with zero-restart live reload (`pkill -USR1 kitty`).
+  - **Zero-Restart Reactivity**: Live synchronization through `wm-stream` IPC updates all bar pills and panels instantaneously.
+  - **Persistent Autostart & Memory**: Built-in systemd user services (`awww-daemon.service` & `simple-bar.service`) restore the remembered wallpaper and palette automatically on session startup.
+- **🔗 Seamless Unified Panels**: All 9 flyout panels (Apps, Clipboard, Calendar, Connectivity, Battery, System Resources, Notifications, App Context, Wallpapers) expand to a flush 560px width with flattened connecting edges directly merging into the bar pill.
+- **🔔 Native Notification Server & In-Pill HUD**: Built-in notification server with single-line horizontal toast HUD, newline sanitization, hover dismiss button, and click-to-expand full details in the notification center.
 - **☕ Caffeine Idle Inhibitor**: One-click system idle/sleep inhibition via `systemd-inhibit` with instant desktop feedback notifications.
 - **🚀 Integrated Application Launcher**: Categorized app drawer (`All`, `System`, `Development`, `Internet`, `Media`, etc.) with full keyboard navigation and automatic query resets.
 - **📋 Visual Clipboard History Manager**: Dual-format history for copied text and image thumbnails via `cliphist`.
@@ -34,6 +42,9 @@ The theme relies on standard Linux utilities and Quickshell:
 | **brightnessctl** | Display backlight control |
 | **networkmanager** (`nmcli`) | Wi-Fi scanning, connection, and power control |
 | **bluez** (`bluetoothctl`) | Bluetooth device pairing and connection management |
+| **awww** | High-performance Wayland wallpaper daemon with animated transitions |
+| **python-pillow** | Image processing & dynamic color extraction library |
+| **kitty** / **foot** *(optional)* | Terminal emulators with automatic dynamic theme reloading |
 | **Nerd Fonts** | System font with icons (e.g. JetBrains Mono Nerd Font) |
 | **blueman** *(optional)* | Graphical Bluetooth manager (`blueman-manager`) |
 | **btop** *(optional)* | Terminal hardware resource monitor |
@@ -50,7 +61,7 @@ cd simple-bar
 ./install.sh
 ```
 
-The installer verifies your dependencies, ensures execution permissions, and automatically symlinks the configuration to `~/.config/quickshell/simple-bar`.
+The installer verifies your dependencies, sets execution permissions, symlinks the configuration to `~/.config/quickshell/simple-bar`, and installs/enables systemd user services for `simple-bar` and `awww-daemon`.
 
 ### Testing / Starting Manually
 
@@ -62,21 +73,27 @@ qs -d -p ~/.config/quickshell/simple-bar
 
 ## 🖥️ Autostart Configuration
 
-Add the launch command to your compositor's configuration file:
+### Systemd User Services (Recommended)
+Both services run automatically under `graphical-session.target`:
+```bash
+systemctl --user enable --now awww-daemon.service simple-bar.service
+```
 
-### Niri (`~/.config/niri/config.kdl`)
+### Wayland Compositor Autostart
+
+#### Niri (`~/.config/niri/config.kdl` or `config.d/50-startup.kdl`)
 ```kdl
-spawn-at-startup "qs" "-d" "-p" "~/.config/quickshell/simple-bar"
+spawn-at-startup "systemctl" "--user" "start" "awww-daemon.service" "simple-bar.service"
 ```
 
-### Hyprland (`~/.config/hypr/hyprland.conf`)
+#### Hyprland (`~/.config/hypr/hyprland.conf`)
 ```ini
-exec-once = qs -d -p ~/.config/quickshell/simple-bar
+exec-once = systemctl --user start awww-daemon.service simple-bar.service
 ```
 
-### Sway (`~/.config/sway/config`)
+#### Sway (`~/.config/sway/config`)
 ```ini
-exec qs -d -p ~/.config/quickshell/simple-bar
+exec systemctl --user start awww-daemon.service simple-bar.service
 ```
 
 ---
@@ -85,12 +102,16 @@ exec qs -d -p ~/.config/quickshell/simple-bar
 
 ```
 simple-bar/
-├── shell.qml          # Declarative Quickshell interface (Bar, Balls, Panels, Sliders)
-├── config.json        # Persistent bar settings (top/bottom position)
+├── shell.qml                  # Declarative Quickshell interface (Bar, Balls, Panels, Sliders)
+├── config.json                # Persistent bar & wallpaper settings
 ├── scripts/
-│   └── control.py     # Asynchronous hardware bridge (nmcli, bluetoothctl, wpctl, etc.)
-├── CHANGELOG.md       # Comprehensive log of features, bugs, and fixes
-├── install.sh         # Cross-distro installer and dependency checker
+│   ├── control.py             # Asynchronous hardware bridge & WM event stream
+│   └── theme.py               # Wallpaper engine, Wallhaven client & terminal theme exporter
+├── systemd/
+│   ├── awww-daemon.service    # Systemd service with wallpaper restoration hook
+│   └── simple-bar.service     # Systemd service for the bar interface
+├── CHANGELOG.md               # Comprehensive log of features, bugs, and fixes
+├── install.sh                 # Cross-distro installer and systemd configurator
 └── .gitignore
 ```
 

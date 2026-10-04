@@ -54,6 +54,12 @@ ShellRoot {
         root.isPopupClosing = false
         root.displayedPopup = name
         root.activePopup = name
+        if (name === "wallpaper") {
+            sysStats.loadWallpapers()
+            if (sysStats.wallhavenList.length === 0) {
+                sysStats.searchWallhaven("", "toplist", 1)
+            }
+        }
     }
 
     function closePopup(instant) {
@@ -113,6 +119,20 @@ ShellRoot {
         }
         function open() {
             root.openPopup("battery")
+        }
+        function close() {
+            root.closePopup(false)
+        }
+    }
+
+    // IPC Handler to open/toggle wallpaper panel
+    IpcHandler {
+        target: "wallpaper"
+        function toggle() {
+            root.togglePopup("wallpaper")
+        }
+        function open() {
+            root.openPopup("wallpaper")
         }
         function close() {
             root.closePopup(false)
@@ -405,21 +425,48 @@ ShellRoot {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // THEME DESIGN TOKENS (Pitch Black Aesthetic)
+    // THEME DESIGN TOKENS (Dynamic Wallpaper Extraction + Pitch Black Mode)
     // ─────────────────────────────────────────────────────────────────────────
     QtObject {
+        id: themeManager
+        property var colors: ({
+            bg: "#000000",
+            bgTranslucent: "#fa000000",
+            surface: "#0a0a0a",
+            surfaceHover: "#161616",
+            surfaceActive: "#222222",
+            border: "#1f1f1f",
+            borderLight: "#2c2c2c",
+            borderAccent: "#304060",
+            text: "#f0f2fb",
+            textMuted: "#7a7d90",
+            accent: "#89b4fa",
+            accentSurface: "#141c2b",
+            accentHover: "#b4befe",
+            secondary: "#cba6f7",
+            palette: ["#89b4fa", "#cba6f7", "#f38ba8", "#a6e3a1", "#fab387", "#94e2d5"]
+        })
+        property var swatches: (colors && colors.palette && colors.palette.length > 0) ? colors.palette : ["#89b4fa", "#cba6f7", "#f38ba8", "#a6e3a1", "#fab387", "#94e2d5"]
+        property string currentWallpaper: ""
+        property string themeMode: "pitch_black"
+    }
+
+    QtObject {
         id: theme
-        readonly property color bg: "#000000"
-        readonly property color bgTranslucent: "#fa000000"
-        readonly property color surface: "#0a0a0a"
-        readonly property color surfaceHover: "#161616"
-        readonly property color surfaceActive: "#222222"
-        readonly property color border: "#1f1f1f"
-        readonly property color borderLight: "#2c2c2c"
-        readonly property color text: "#f0f2fb"
-        readonly property color textMuted: "#7a7d90"
-        readonly property color accent: "#89b4fa"
-        readonly property color accentSurface: "#141c2b"
+        readonly property color bg: (themeManager.colors && themeManager.colors.bg) ? themeManager.colors.bg : "#000000"
+        readonly property color bgTranslucent: (themeManager.colors && themeManager.colors.bgTranslucent) ? themeManager.colors.bgTranslucent : "#fa000000"
+        readonly property color surface: (themeManager.colors && themeManager.colors.surface) ? themeManager.colors.surface : "#0a0a0a"
+        readonly property color surfaceHover: (themeManager.colors && themeManager.colors.surfaceHover) ? themeManager.colors.surfaceHover : "#161616"
+        readonly property color surfaceActive: (themeManager.colors && themeManager.colors.surfaceActive) ? themeManager.colors.surfaceActive : "#222222"
+        readonly property color border: (themeManager.colors && themeManager.colors.border) ? themeManager.colors.border : "#1f1f1f"
+        readonly property color borderLight: (themeManager.colors && themeManager.colors.borderLight) ? themeManager.colors.borderLight : "#2c2c2c"
+        readonly property color borderAccent: (themeManager.colors && themeManager.colors.borderAccent) ? themeManager.colors.borderAccent : "#304060"
+        readonly property color text: (themeManager.colors && themeManager.colors.text) ? themeManager.colors.text : "#f0f2fb"
+        readonly property color textMuted: (themeManager.colors && themeManager.colors.textMuted) ? themeManager.colors.textMuted : "#7a7d90"
+        readonly property color accent: (themeManager.colors && themeManager.colors.accent) ? themeManager.colors.accent : "#89b4fa"
+        readonly property color accentSurface: (themeManager.colors && themeManager.colors.accentSurface) ? themeManager.colors.accentSurface : "#141c2b"
+        readonly property color accentHover: (themeManager.colors && themeManager.colors.accentHover) ? themeManager.colors.accentHover : "#b4befe"
+        readonly property color secondary: (themeManager.colors && themeManager.colors.secondary) ? themeManager.colors.secondary : "#cba6f7"
         readonly property color success: "#a6e3a1"
         readonly property color warning: "#f9e2af"
         readonly property color danger: "#f38ba8"
@@ -510,6 +557,13 @@ ShellRoot {
                         } else if (msg.type === "brightness") {
                             sysStats.brightness = msg.brightness
                             root.triggerBrightnessFeedback()
+                        } else if (msg.type === "theme") {
+                            if (msg.colors) {
+                                themeManager.colors = msg.colors
+                                if (msg.colors.palette) themeManager.swatches = msg.colors.palette
+                            }
+                            if (msg.wallpaper) themeManager.currentWallpaper = msg.wallpaper
+                            if (msg.swatches) themeManager.swatches = msg.swatches
                         }
                     } catch (e) {}
                 }
@@ -532,6 +586,11 @@ ShellRoot {
                         let data = JSON.parse(text)
                         if (data.config && data.config.position) {
                             root.barPosition = data.config.position
+                        }
+                        if (data.theme && data.theme.colors) {
+                            themeManager.colors = data.theme.colors
+                            if (data.theme.colors.palette) themeManager.swatches = data.theme.colors.palette
+                            if (data.theme.wallpaper) themeManager.currentWallpaper = data.theme.wallpaper
                         }
                         if (data.audio) {
                             sysStats.volume = data.audio.volume ?? 50
@@ -559,6 +618,151 @@ ShellRoot {
                     } catch (e) {}
                 }
             }
+        }
+
+        // Wallpaper & Theme state & processes
+        property var wallpapersList: []
+        property var wallhavenList: []
+        property bool wallhavenLoading: false
+        property bool wallhavenApplying: false
+        property string wallhavenQuery: ""
+        property string wallhavenSorting: "toplist"
+        property int wallhavenPage: 1
+        property int wallhavenLastPage: 1
+
+        property Process wallpapersProc: Process {
+            id: wallpapersProc
+            command: ["python3", sysStats.scriptPath, "get-wallpapers"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let list = JSON.parse(text)
+                        if (Array.isArray(list)) {
+                            sysStats.wallpapersList = list
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function loadWallpapers() {
+            if (!wallpapersProc.running) wallpapersProc.running = true
+        }
+
+        property Process wallhavenProc: Process {
+            id: wallhavenProc
+            command: ["python3", sysStats.scriptPath, "search-wallhaven", sysStats.wallhavenQuery, sysStats.wallhavenSorting, String(sysStats.wallhavenPage)]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    sysStats.wallhavenLoading = false
+                    try {
+                        let res = JSON.parse(text)
+                        if (res && res.wallpapers) {
+                            sysStats.wallhavenList = res.wallpapers
+                            sysStats.wallhavenPage = res.page || 1
+                            sysStats.wallhavenLastPage = res.last_page || 1
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function searchWallhaven(q, sort, page) {
+            sysStats.wallhavenQuery = (q !== undefined) ? q : sysStats.wallhavenQuery
+            sysStats.wallhavenSorting = sort || sysStats.wallhavenSorting
+            sysStats.wallhavenPage = page || 1
+            sysStats.wallhavenLoading = true
+            wallhavenProc.command = ["python3", sysStats.scriptPath, "search-wallhaven", sysStats.wallhavenQuery, sysStats.wallhavenSorting, String(sysStats.wallhavenPage)]
+            wallhavenProc.running = true
+        }
+
+        function nextWallhavenPage() {
+            if (sysStats.wallhavenPage < sysStats.wallhavenLastPage && !sysStats.wallhavenLoading) {
+                searchWallhaven(sysStats.wallhavenQuery, sysStats.wallhavenSorting, sysStats.wallhavenPage + 1)
+            }
+        }
+
+        function prevWallhavenPage() {
+            if (sysStats.wallhavenPage > 1 && !sysStats.wallhavenLoading) {
+                searchWallhaven(sysStats.wallhavenQuery, sysStats.wallhavenSorting, sysStats.wallhavenPage - 1)
+            }
+        }
+
+        property Process setWallProc: Process {
+            id: setWallProc
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let res = JSON.parse(text)
+                        if (res.colors) {
+                            themeManager.colors = res.colors
+                            if (res.colors.palette) themeManager.swatches = res.colors.palette
+                        }
+                        if (res.wallpaper) themeManager.currentWallpaper = res.wallpaper
+                        sysStats.loadWallpapers()
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function setWallpaper(path) {
+            setWallProc.command = ["python3", sysStats.scriptPath, "set-wallpaper", path]
+            setWallProc.running = true
+        }
+
+        function randomWallpaper() {
+            setWallProc.command = ["python3", sysStats.scriptPath, "random-wallpaper"]
+            setWallProc.running = true
+        }
+
+        property Process applyWallhavenProc: Process {
+            id: applyWallhavenProc
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    sysStats.wallhavenApplying = false
+                    try {
+                        let res = JSON.parse(text)
+                        if (res.colors) {
+                            themeManager.colors = res.colors
+                            if (res.colors.palette) themeManager.swatches = res.colors.palette
+                        }
+                        if (res.wallpaper) themeManager.currentWallpaper = res.wallpaper
+                        sysStats.loadWallpapers()
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function applyWallhaven(id, url) {
+            sysStats.wallhavenApplying = true
+            applyWallhavenProc.command = ["python3", sysStats.scriptPath, "apply-wallhaven", String(id), String(url)]
+            applyWallhavenProc.running = true
+        }
+
+        property Process accentProc: Process {
+            id: accentProc
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let res = JSON.parse(text)
+                        if (res.colors) {
+                            themeManager.colors = res.colors
+                            if (res.colors.palette) themeManager.swatches = res.colors.palette
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function setAccent(hex) {
+            accentProc.command = ["python3", sysStats.scriptPath, "set-accent", hex]
+            accentProc.running = true
+        }
+
+        function setThemeMode(mode) {
+            themeManager.themeMode = mode
+            accentProc.command = ["python3", sysStats.scriptPath, "set-theme-mode", mode]
+            accentProc.running = true
         }
 
         // App Catalog Fetcher
@@ -1721,6 +1925,49 @@ ShellRoot {
                                         }
                                     }
 
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 7. Wallpaper & Themes
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: (wallCtrlMouse.containsMouse || root.activePopup === "wallpaper") ? theme.surfaceHover : "transparent"
+                                        width: wallCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: wallCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰸉"
+                                                font.pixelSize: 13
+                                                color: root.activePopup === "wallpaper" ? theme.accent : theme.text
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: "Theme"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: wallCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("wallpaper")
+                                        }
+                                    }
+
                                     // Separator before pager dots (only when hovered)
                                     Rectangle {
                                         anchors.verticalCenter: parent.verticalCenter
@@ -2490,11 +2737,15 @@ ShellRoot {
                                     }
                                     onClicked: mouse => {
                                         if (mouse.button === Qt.LeftButton) {
-                                            let defAction = root.currentToast?.actions?.find(a => a.identifier === "default" || a.identifier === "open")
-                                            if (defAction) defAction.invoke()
+                                            root.hasUnreadNotifications = false
                                             root.dismissCurrentToast()
+                                            root.openPopup("notifications")
                                         } else if (mouse.button === Qt.RightButton) {
                                             if (root.currentToast) root.currentToast.dismiss()
+                                            root.dismissCurrentToast()
+                                        } else if (mouse.button === Qt.MiddleButton) {
+                                            let defAction = root.currentToast?.actions?.find(a => a.identifier === "default" || a.identifier === "open")
+                                            if (defAction) defAction.invoke()
                                             root.dismissCurrentToast()
                                         }
                                     }
@@ -2583,7 +2834,7 @@ ShellRoot {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.activePopup = root.activePopup === "wifi" ? "" : "wifi"
+                            onClicked: root.togglePopup("wifi")
                         }
                     }
 
@@ -2651,7 +2902,7 @@ ShellRoot {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.activePopup = root.activePopup === "battery" ? "" : "battery"
+                            onClicked: root.togglePopup("battery")
                         }
 
                         // Scrolling on the battery/status ball adjusts screen brightness
@@ -2698,7 +2949,7 @@ ShellRoot {
                 color: "transparent"
                 WlrLayershell.namespace: "quickshell:simple-bar-popups"
                 WlrLayershell.layer: WlrLayer.Overlay
-                WlrLayershell.keyboardFocus: ((root.activePopup === "apps" || root.activePopup === "clipboard") && !root.isPopupClosing) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+                WlrLayershell.keyboardFocus: ((root.activePopup === "apps" || root.activePopup === "clipboard" || root.activePopup === "wallpaper") && !root.isPopupClosing) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
                 exclusionMode: ExclusionMode.Ignore
 
                 // Click-outside background to dismiss popup
@@ -5758,6 +6009,704 @@ ShellRoot {
                                         onClicked: {
                                             let defAction = modelData.actions?.find(a => a.identifier === "default" || a.identifier === "open")
                                             if (defAction) defAction.invoke()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL I: WALLPAPERS & DYNAMIC THEMES (Local Library + Wallhaven)
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: wallpaperPanel
+                    readonly property bool isShown: root.activePopup === "wallpaper" && !root.isPopupClosing
+                    visible: root.displayedPopup === "wallpaper"
+
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: 560
+                    height: 576
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: wallpaperPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    property int activeTab: 0 // 0: Local, 1: Wallhaven
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            sysStats.loadWallpapers()
+                            if (sysStats.wallhavenList.length === 0) {
+                                sysStats.searchWallhaven("", "toplist", 1)
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 10
+
+                        // 1. Header (Icon, Title, Mode toggle, Random, Close)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: "󰸉"
+                                font.pixelSize: 18
+                                color: theme.accent
+                            }
+
+                            ColumnLayout {
+                                spacing: 1
+                                Text {
+                                    text: "Wallpapers & Themes"
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    color: theme.text
+                                }
+                                Text {
+                                    text: {
+                                        let cur = themeManager.currentWallpaper
+                                        if (!cur) return "Dynamic palette generation"
+                                        let parts = cur.split("/")
+                                        return parts[parts.length - 1]
+                                    }
+                                    font.pixelSize: 10
+                                    color: theme.textMuted
+                                    elide: Text.ElideMiddle
+                                    Layout.maximumWidth: 190
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            // Theme Mode Switcher
+                            Rectangle {
+                                height: 26
+                                radius: 13
+                                color: modeHov.containsMouse ? theme.surfaceHover : theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                width: modeRow.implicitWidth + 14
+
+                                RowLayout {
+                                    id: modeRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Text {
+                                        text: themeManager.themeMode === "pitch_black" ? "🖤 Pitch Black" : "🎨 Tinted"
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                        color: theme.text
+                                    }
+                                }
+                                MouseArea {
+                                    id: modeHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        let next = themeManager.themeMode === "pitch_black" ? "tinted" : "pitch_black"
+                                        sysStats.setThemeMode(next)
+                                    }
+                                }
+                            }
+
+                            // Shuffle Random Wallpaper Button
+                            Rectangle {
+                                height: 26
+                                radius: 13
+                                color: randHov.containsMouse ? theme.surfaceHover : theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                width: randRow.implicitWidth + 14
+
+                                RowLayout {
+                                    id: randRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Text { text: "󰒝"; font.pixelSize: 11; color: theme.accent }
+                                    Text { text: "Random"; font.pixelSize: 10; font.weight: Font.DemiBold; color: theme.text }
+                                }
+                                MouseArea {
+                                    id: randHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: sysStats.randomWallpaper()
+                                }
+                            }
+
+                            // Close Button
+                            Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: closeWallHov.containsMouse ? "#2d1419" : "transparent"
+                                border.color: closeWallHov.containsMouse ? theme.danger : "transparent"
+                                border.width: 1
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 11; color: closeWallHov.containsMouse ? theme.danger : theme.textMuted }
+                                MouseArea {
+                                    id: closeWallHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        // 2. Active Extracted Palette Swatches Card
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 36
+                            radius: 8
+                            color: theme.surface
+                            border.color: theme.border
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                spacing: 8
+
+                                Text {
+                                    text: "Palette"
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: theme.textMuted
+                                }
+
+                                Rectangle { width: 1; height: 14; color: theme.borderLight }
+
+                                Repeater {
+                                    model: themeManager.swatches || []
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: 20; height: 20; radius: 10
+                                        color: modelData
+                                        border.color: (theme.accent === modelData) ? "#ffffff" : "transparent"
+                                        border.width: 2
+                                        scale: swatchMouse.containsMouse ? 1.2 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 120 } }
+
+                                        MouseArea {
+                                            id: swatchMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.setAccent(modelData)
+                                        }
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Text {
+                                    visible: sysStats.wallhavenApplying
+                                    text: "󰑐 Downloading & Applying..."
+                                    font.pixelSize: 10
+                                    font.weight: Font.Bold
+                                    color: theme.warning
+                                }
+                            }
+                        }
+
+                        // 3. Tab Switcher (Local Library vs Wallhaven Online)
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 32
+                            radius: 8
+                            color: theme.surface
+                            border.color: theme.border
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                spacing: 4
+
+                                // Local Tab
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    radius: 7
+                                    color: wallpaperPanel.activeTab === 0 ? theme.surfaceHover : "transparent"
+                                    border.color: wallpaperPanel.activeTab === 0 ? theme.accent : "transparent"
+                                    border.width: 1
+
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 6
+                                        Text { text: "📁"; font.pixelSize: 11 }
+                                        Text {
+                                            text: `Local Library (${sysStats.wallpapersList.length})`
+                                            font.pixelSize: 11
+                                            font.weight: wallpaperPanel.activeTab === 0 ? Font.Bold : Font.Normal
+                                            color: wallpaperPanel.activeTab === 0 ? theme.text : theme.textMuted
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: wallpaperPanel.activeTab = 0
+                                    }
+                                }
+
+                                // Wallhaven Tab
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    radius: 7
+                                    color: wallpaperPanel.activeTab === 1 ? theme.surfaceHover : "transparent"
+                                    border.color: wallpaperPanel.activeTab === 1 ? theme.accent : "transparent"
+                                    border.width: 1
+
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 6
+                                        Text { text: "🌐"; font.pixelSize: 11 }
+                                        Text {
+                                            text: "Wallhaven.cc Online"
+                                            font.pixelSize: 11
+                                            font.weight: wallpaperPanel.activeTab === 1 ? Font.Bold : Font.Normal
+                                            color: wallpaperPanel.activeTab === 1 ? theme.text : theme.textMuted
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            wallpaperPanel.activeTab = 1
+                                            if (sysStats.wallhavenList.length === 0) {
+                                                sysStats.searchWallhaven("", "toplist", 1)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Tab 0: Local Wallpapers Grid
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: wallpaperPanel.activeTab === 0
+
+                            ScrollView {
+                                anchors.fill: parent
+                                clip: true
+                                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                                GridView {
+                                    id: localWallGrid
+                                    anchors.fill: parent
+                                    cellWidth: 176
+                                    cellHeight: 120
+                                    model: sysStats.wallpapersList
+
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: 168
+                                        height: 112
+                                        radius: 8
+                                        clip: true
+                                        color: theme.surface
+                                        border.color: modelData.active ? theme.accent : (localCardMouse.containsMouse ? theme.borderLight : theme.border)
+                                        border.width: modelData.active ? 2 : 1
+
+                                        Image {
+                                            anchors.fill: parent
+                                            anchors.margins: 2
+                                            fillMode: Image.PreserveAspectCrop
+                                            source: modelData.thumb || modelData.path
+                                            asynchronous: true
+                                            cache: true
+                                        }
+
+                                        // Bottom gradient filename bar
+                                        Rectangle {
+                                            anchors.bottom: parent.bottom
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            height: 22
+                                            color: "#d9000000"
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                width: parent.width - 8
+                                                text: modelData.name
+                                                font.pixelSize: 9
+                                                font.weight: Font.Medium
+                                                color: "#ffffff"
+                                                elide: Text.ElideMiddle
+                                                horizontalAlignment: Text.AlignHCenter
+                                            }
+                                        }
+
+                                        // Active Checkmark Badge
+                                        Rectangle {
+                                            anchors.top: parent.top
+                                            anchors.right: parent.right
+                                            anchors.margins: 5
+                                            width: 18; height: 18; radius: 9
+                                            color: theme.accent
+                                            visible: modelData.active
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "✓"
+                                                font.pixelSize: 10
+                                                font.bold: true
+                                                color: "#000000"
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: localCardMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.setWallpaper(modelData.path)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 5. Tab 1: Wallhaven Online Catalogue
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: wallpaperPanel.activeTab === 1
+                            spacing: 8
+
+                            // Search bar & sorting pills
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 32
+                                    radius: 8
+                                    color: theme.surface
+                                    border.color: wallhavenInput.activeFocus ? theme.accent : theme.border
+                                    border.width: 1
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 8
+                                        spacing: 6
+
+                                        Text { text: "󰍉"; font.pixelSize: 12; color: theme.textMuted }
+
+                                        TextInput {
+                                            id: wallhavenInput
+                                            Layout.fillWidth: true
+                                            font.pixelSize: 11
+                                            color: theme.text
+                                            clip: true
+                                            text: sysStats.wallhavenQuery
+                                            Text {
+                                                anchors.fill: parent
+                                                text: "Search Wallhaven (e.g. anime, cyberpunk, nature)..."
+                                                font.pixelSize: 11
+                                                color: theme.textMuted
+                                                visible: !wallhavenInput.text && !wallhavenInput.activeFocus
+                                            }
+                                            onAccepted: sysStats.searchWallhaven(text, sysStats.wallhavenSorting, 1)
+                                        }
+
+                                        Rectangle {
+                                            width: 50; height: 22; radius: 5
+                                            color: searchBtnMouse.containsMouse ? theme.accentSurface : theme.surfaceHover
+                                            border.color: theme.accent
+                                            border.width: 1
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "Search"
+                                                font.pixelSize: 10
+                                                font.weight: Font.Bold
+                                                color: theme.accent
+                                            }
+
+                                            MouseArea {
+                                                id: searchBtnMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: sysStats.searchWallhaven(wallhavenInput.text, sysStats.wallhavenSorting, 1)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Sorting pills
+                                RowLayout {
+                                    spacing: 4
+                                    Repeater {
+                                        model: [
+                                            { id: "toplist", label: "Top" },
+                                            { id: "hot", label: "Hot" },
+                                            { id: "latest", label: "New" },
+                                            { id: "random", label: "Rand" }
+                                        ]
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            height: 30
+                                            width: sortLabel.implicitWidth + 14
+                                            radius: 6
+                                            readonly property bool isSel: sysStats.wallhavenSorting === modelData.id
+                                            color: isSel ? theme.accentSurface : (sortMouse.containsMouse ? theme.surfaceHover : theme.surface)
+                                            border.color: isSel ? theme.accent : theme.border
+                                            border.width: 1
+
+                                            Text {
+                                                id: sortLabel
+                                                anchors.centerIn: parent
+                                                text: modelData.label
+                                                font.pixelSize: 10
+                                                font.weight: isSel ? Font.Bold : Font.Normal
+                                                color: isSel ? theme.accent : theme.textMuted
+                                            }
+
+                                            MouseArea {
+                                                id: sortMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    sysStats.wallhavenSorting = modelData.id
+                                                    sysStats.searchWallhaven(wallhavenInput.text, modelData.id, 1)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Wallhaven results grid
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                // Loading state
+                                Item {
+                                    anchors.centerIn: parent
+                                    visible: sysStats.wallhavenLoading
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 8
+                                        Text { text: "󰑐"; font.pixelSize: 26; color: theme.accent; Layout.alignment: Qt.AlignHCenter }
+                                        Text { text: "Searching Wallhaven.cc..."; font.pixelSize: 12; color: theme.textMuted; Layout.alignment: Qt.AlignHCenter }
+                                    }
+                                }
+
+                                ScrollView {
+                                    anchors.fill: parent
+                                    clip: true
+                                    visible: !sysStats.wallhavenLoading
+                                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                                    GridView {
+                                        id: wallhavenGrid
+                                        anchors.fill: parent
+                                        cellWidth: 176
+                                        cellHeight: 120
+                                        model: sysStats.wallhavenList
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: 168
+                                            height: 112
+                                            radius: 8
+                                            clip: true
+                                            color: theme.surface
+                                            border.color: whItemMouse.containsMouse ? theme.accent : theme.border
+                                            border.width: 1
+
+                                            Image {
+                                                anchors.fill: parent
+                                                anchors.margins: 2
+                                                fillMode: Image.PreserveAspectCrop
+                                                source: modelData.thumb
+                                                asynchronous: true
+                                                cache: true
+                                            }
+
+                                            // Resolution badge (top-right)
+                                            Rectangle {
+                                                anchors.top: parent.top
+                                                anchors.right: parent.right
+                                                anchors.margins: 4
+                                                height: 16
+                                                radius: 4
+                                                color: "#cc000000"
+                                                width: resText.implicitWidth + 8
+
+                                                Text {
+                                                    id: resText
+                                                    anchors.centerIn: parent
+                                                    text: modelData.resolution
+                                                    font.pixelSize: 8
+                                                    font.weight: Font.Bold
+                                                    color: "#ffffff"
+                                                }
+                                            }
+
+                                            // Bottom Action Overlay
+                                            Rectangle {
+                                                anchors.bottom: parent.bottom
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                height: 24
+                                                color: whItemMouse.containsMouse ? "#ea000000" : "#99000000"
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    spacing: 4
+                                                    Text { text: "󰇚"; font.pixelSize: 10; color: theme.accent }
+                                                    Text {
+                                                        text: whItemMouse.containsMouse ? "Save & Apply" : (modelData.category || "Wallhaven")
+                                                        font.pixelSize: 9
+                                                        font.weight: Font.DemiBold
+                                                        color: whItemMouse.containsMouse ? theme.accent : "#ffffff"
+                                                    }
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: whItemMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: sysStats.applyWallhaven(modelData.id, modelData.url)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Pagination Controls Bar
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 32
+                                radius: 8
+                                color: theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                visible: !sysStats.wallhavenLoading && sysStats.wallhavenList.length > 0
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 8
+
+                                    // First Page Button
+                                    Rectangle {
+                                        width: 26; height: 22; radius: 5
+                                        enabled: sysStats.wallhavenPage > 1
+                                        color: enabled ? (whPgFirstHov.containsMouse ? theme.surfaceHover : "transparent") : "transparent"
+                                        opacity: enabled ? 1.0 : 0.35
+                                        border.color: enabled ? theme.border : "transparent"
+                                        border.width: 1
+                                        Text { anchors.centerIn: parent; text: "󰁍󰁍"; font.pixelSize: 10; color: theme.text }
+                                        MouseArea {
+                                            id: whPgFirstHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.searchWallhaven(wallhavenInput.text, sysStats.wallhavenSorting, 1)
+                                        }
+                                    }
+
+                                    // Prev Button
+                                    Rectangle {
+                                        height: 22; radius: 5
+                                        width: whPgPrevRow.implicitWidth + 12
+                                        enabled: sysStats.wallhavenPage > 1
+                                        color: enabled ? (whPgPrevHov.containsMouse ? theme.surfaceHover : "transparent") : "transparent"
+                                        opacity: enabled ? 1.0 : 0.35
+                                        border.color: enabled ? theme.border : "transparent"
+                                        border.width: 1
+                                        RowLayout {
+                                            id: whPgPrevRow; anchors.centerIn: parent; spacing: 4
+                                            Text { text: "󰁍"; font.pixelSize: 10; color: theme.accent }
+                                            Text { text: "Prev"; font.pixelSize: 10; font.weight: Font.DemiBold; color: theme.text }
+                                        }
+                                        MouseArea {
+                                            id: whPgPrevHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.prevWallhavenPage()
+                                        }
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    // Page Number Indicator
+                                    RowLayout {
+                                        spacing: 4
+                                        Text {
+                                            text: `Page ${sysStats.wallhavenPage}`
+                                            font.pixelSize: 11
+                                            font.weight: Font.Bold
+                                            color: theme.accent
+                                        }
+                                        Text {
+                                            text: `of ${sysStats.wallhavenLastPage}`
+                                            font.pixelSize: 10
+                                            color: theme.textMuted
+                                        }
+                                        Text {
+                                            text: "(12 / page)"
+                                            font.pixelSize: 9
+                                            color: theme.textMuted
+                                        }
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    // Next Button
+                                    Rectangle {
+                                        height: 22; radius: 5
+                                        width: whPgNextRow.implicitWidth + 12
+                                        enabled: sysStats.wallhavenPage < sysStats.wallhavenLastPage
+                                        color: enabled ? (whPgNextHov.containsMouse ? theme.surfaceHover : "transparent") : "transparent"
+                                        opacity: enabled ? 1.0 : 0.35
+                                        border.color: enabled ? theme.border : "transparent"
+                                        border.width: 1
+                                        RowLayout {
+                                            id: whPgNextRow; anchors.centerIn: parent; spacing: 4
+                                            Text { text: "Next"; font.pixelSize: 10; font.weight: Font.DemiBold; color: theme.text }
+                                            Text { text: "󰁔"; font.pixelSize: 10; color: theme.accent }
+                                        }
+                                        MouseArea {
+                                            id: whPgNextHov; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: sysStats.nextWallhavenPage()
                                         }
                                     }
                                 }
