@@ -299,6 +299,8 @@ def export_terminal_themes(tokens, wallpaper_path=""):
 
     # 1. Kitty Terminal (~/.config/kitty/current-theme.conf)
     kitty_dir = os.path.expanduser("~/.config/kitty")
+    cfg = load_config()
+    term_opacity = cfg.get("terminal_opacity", 0.80)
     if os.path.exists(kitty_dir):
         wp_name = os.path.basename(wallpaper_path) if wallpaper_path else "Current Theme"
         kitty_content = f"""# Generated dynamically by simple-bar theme engine
@@ -307,6 +309,7 @@ def export_terminal_themes(tokens, wallpaper_path=""):
 # Special colors
 foreground            {fg}
 background            {bg}
+background_opacity    {term_opacity}
 selection_foreground  #000000
 selection_background  {accent}
 
@@ -370,6 +373,7 @@ color15 {c15}
     if os.path.exists(foot_dir):
         def cl(h): return h.lstrip("#")
         foot_content = f"""[colors]
+alpha={term_opacity}
 background={cl(bg)}
 foreground={cl(fg)}
 selection-background={cl(accent)}

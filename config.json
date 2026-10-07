@@ -1,8 +1,10 @@
 {
   "position": "top",
-  "wallpaper": "/home/djrcx/Pictures/Wallpapers/wallhaven-5yzd98.png",
+  "wallpaper": "/home/djrcx/Pictures/Wallpapers/G5uBmitWkAAyk8s.jpg",
   "wallpaper_dir": "/home/djrcx/Pictures/Wallpapers",
   "theme_mode": "pitch_black",
   "weather_lat": 23.7882,
-  "weather_lon": 90.3736
+  "weather_lon": 90.3736,
+  "bar_workspace_timeout": 15,
+  "terminal_opacity": 0.8
 }

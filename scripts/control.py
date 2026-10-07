@@ -178,6 +178,11 @@ def clean_app_name(app_id, title=""):
     }
     if app_id in mapping:
         return mapping[app_id]
+
+    entry = find_desktop_entry(app_id)
+    if entry and entry.get('name'):
+        return entry['name']
+
     if '.' in app_id:
         return app_id.split('.')[-1].capitalize()
     return app_id.capitalize()
@@ -196,6 +201,19 @@ ICON_SEARCH_DIRS = [
     os.path.expanduser('~/.local/share/icons/hicolor/24x24/apps'),
     os.path.expanduser('~/.local/share/icons/hicolor/16x16/apps'),
     os.path.expanduser('~/.local/share/pixmaps'),
+
+    # Flatpak user & system icons
+    os.path.expanduser('~/.local/share/flatpak/exports/share/icons/hicolor/scalable/apps'),
+    os.path.expanduser('~/.local/share/flatpak/exports/share/icons/hicolor/512x512/apps'),
+    os.path.expanduser('~/.local/share/flatpak/exports/share/icons/hicolor/256x256/apps'),
+    os.path.expanduser('~/.local/share/flatpak/exports/share/icons/hicolor/128x128/apps'),
+    '/var/lib/flatpak/exports/share/icons/hicolor/scalable/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/512x512/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/256x256/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/128x128/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/64x64/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/48x48/apps',
+    '/var/lib/flatpak/exports/share/icons/hicolor/32x32/apps',
 
     # 2. System hicolor (App developers' official bundled full-color icons)
     '/usr/share/icons/hicolor/scalable/apps',
@@ -227,6 +245,84 @@ ICON_SEARCH_DIRS = [
 ]
 ICON_DIRS = [d for d in ICON_SEARCH_DIRS if os.path.exists(d)]
 
+def get_desktop_directories():
+    dirs = [
+        os.path.expanduser('~/.local/share/applications'),
+        os.path.expanduser('~/Desktop'),
+        '/var/lib/flatpak/exports/share/applications',
+        os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),
+        '/usr/local/share/applications',
+        '/usr/share/applications',
+        '/var/lib/snapd/desktop/applications',
+    ]
+    for x in os.environ.get('XDG_DATA_DIRS', '').split(':'):
+        if x:
+            p = os.path.join(x, 'applications')
+            if p not in dirs:
+                dirs.append(p)
+    return [d for d in dirs if os.path.exists(d)]
+
+_desktop_cache_time = 0
+_desktop_cache = {}
+_desktop_cache_wmclass = {}
+_desktop_cache_pwa = {}
+
+def update_desktop_cache(force=False):
+    global _desktop_cache_time, _desktop_cache, _desktop_cache_wmclass, _desktop_cache_pwa
+    now = time.time()
+    if not force and _desktop_cache and (now - _desktop_cache_time < 30):
+        return
+    _desktop_cache_time = now
+    cache_id = {}
+    cache_wm = {}
+    cache_pwa = {}
+    for d in get_desktop_directories():
+        for f in glob.glob(os.path.join(d, '*.desktop')):
+            base = os.path.splitext(os.path.basename(f))[0]
+            name, icon, wmclass, exec_cmd = '', '', '', ''
+            try:
+                with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                    for line in fp:
+                        line = line.strip()
+                        if line.startswith('Name=') and not name: name = line.split('=', 1)[1]
+                        elif line.startswith('Icon=') and not icon: icon = line.split('=', 1)[1]
+                        elif line.startswith('StartupWMClass=') and not wmclass: wmclass = line.split('=', 1)[1]
+                        elif line.startswith('Exec=') and not exec_cmd: exec_cmd = line.split('=', 1)[1]
+            except Exception: pass
+            
+            if not name: continue
+            entry = {'name': name, 'icon': icon, 'path': f, 'wmclass': wmclass, 'exec': exec_cmd}
+            if base not in cache_id: cache_id[base] = entry
+            if base.lower() not in cache_id: cache_id[base.lower()] = entry
+            if wmclass:
+                if wmclass not in cache_wm: cache_wm[wmclass] = entry
+                if wmclass.lower() not in cache_wm: cache_wm[wmclass.lower()] = entry
+            
+            pwa_m = re.search(r'--app-id=([a-z0-9]+)', exec_cmd) or re.search(r'([a-z0-9]{32})', base)
+            if pwa_m:
+                pid = pwa_m.group(1).lower()
+                cache_pwa[pid] = entry
+
+    _desktop_cache = cache_id
+    _desktop_cache_wmclass = cache_wm
+    _desktop_cache_pwa = cache_pwa
+
+def find_desktop_entry(app_id):
+    if not app_id: return None
+    update_desktop_cache()
+    if app_id in _desktop_cache: return _desktop_cache[app_id]
+    if app_id.lower() in _desktop_cache: return _desktop_cache[app_id.lower()]
+    if app_id in _desktop_cache_wmclass: return _desktop_cache_wmclass[app_id]
+    if app_id.lower() in _desktop_cache_wmclass: return _desktop_cache_wmclass[app_id.lower()]
+    pwa_m = re.search(r'([a-z0-9]{32})', app_id.lower())
+    if pwa_m and pwa_m.group(1) in _desktop_cache_pwa:
+        return _desktop_cache_pwa[pwa_m.group(1)]
+    if '.' in app_id:
+        last = app_id.split('.')[-1]
+        if last in _desktop_cache: return _desktop_cache[last]
+        if last.lower() in _desktop_cache: return _desktop_cache[last.lower()]
+    return None
+
 def resolve_icon(icon_name):
     if not icon_name: return ''
     if os.path.isabs(icon_name) and os.path.exists(icon_name): return icon_name
@@ -248,9 +344,8 @@ def resolve_icon(icon_name):
 def get_installed_apps():
     apps = []
     seen = set()
-    dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
+    dirs = get_desktop_directories()
     for d in dirs:
-        if not os.path.exists(d): continue
         for f in glob.glob(os.path.join(d, '*.desktop')):
             try:
                 name, exec_cmd, icon, comment, cat, nodisplay = '', '', '', '', 'Utility', False
@@ -270,24 +365,30 @@ def get_installed_apps():
                             elif k == 'Icon' and not icon: icon = v
                             elif k == 'Comment' and not comment: comment = v
                             elif k == 'Categories':
-                                if 'Development' in v: cat = 'Development'
+                                if 'Game' in v or 'Games' in v: cat = 'Games'
+                                elif 'Development' in v: cat = 'Development'
                                 elif 'Network' in v or 'Web' in v: cat = 'Internet'
-                                elif 'Audio' in v or 'Video' in v or 'Media' in v: cat = 'Media'
+                                elif 'Audio' in v or 'Video' in v or 'Media' in v or 'Graphics' in v: cat = 'Media'
                                 elif 'Office' in v: cat = 'Office'
                                 elif 'System' in v or 'Settings' in v: cat = 'System'
                             elif k == 'NoDisplay' and v.lower() == 'true': nodisplay = True
+                # Desktop folder items are explicitly pinned by user
+                if '/Desktop/' in f or f.startswith(os.path.expanduser('~/Desktop')):
+                    nodisplay = False
                 if name and exec_cmd and not nodisplay:
                     if name.lower() in seen: continue
                     seen.add(name.lower())
                     clean_exec = ' '.join([p for p in exec_cmd.split() if not p.startswith('%')])
                     icon_path = resolve_icon(icon)
+                    is_web_app = ('--app-id=' in exec_cmd or '--app=' in exec_cmd or os.path.basename(f).startswith('chrome-'))
                     apps.append({
                         'name': name,
                         'exec': clean_exec,
                         'icon': icon,
                         'icon_path': icon_path,
                         'comment': comment or cat,
-                        'category': cat
+                        'category': cat,
+                        'is_web_app': is_web_app
                     })
             except Exception:
                 pass
@@ -297,6 +398,10 @@ def get_installed_apps():
 def stream_wm():
     def resolve_focused_icon(app_id):
         if not app_id: return ''
+        entry = find_desktop_entry(app_id)
+        if entry and entry.get('icon'):
+            found = resolve_icon(entry['icon'])
+            if found: return found
         candidates = [app_id, app_id.lower(), app_id.split('.')[-1].lower() if '.' in app_id else '']
         for name in candidates:
             if not name: continue
@@ -795,6 +900,159 @@ def clear_clipboard():
     except Exception:
         return False
 
+def get_system_info():
+    uptime_str = "Unknown"
+    try:
+        with open("/proc/uptime", "r") as f:
+            total_seconds = float(f.readline().split()[0])
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        if hours > 24:
+            days = hours // 24
+            rem_h = hours % 24
+            uptime_str = f"{days}d {rem_h}h {minutes}m"
+        elif hours > 0:
+            uptime_str = f"{hours}h {minutes}m"
+        else:
+            uptime_str = f"{minutes}m"
+    except Exception:
+        pass
+
+    user = os.environ.get("USER", "user")
+    import socket
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = "linux"
+
+    return {
+        "user": user,
+        "hostname": hostname,
+        "uptime": uptime_str,
+        "host_str": f"{user}@{hostname}"
+    }
+
+def clean_action_title(action_str):
+    act = action_str.strip().rstrip(';').strip()
+    spawn_m = re.match(r'spawn(?:-sh)?\s+([^\;]+)', act)
+    if spawn_m:
+        raw_cmd = spawn_m.group(1).strip()
+        parts = re.findall(r'\"([^\"]+)\"', raw_cmd)
+        if parts:
+            prog = os.path.basename(parts[0])
+            if prog in ['kitty', 'foot', 'alacritty', 'ghostty']:
+                return 'Open Terminal'
+            elif prog in ['nautilus', 'thunar', 'dolphin']:
+                return 'Open File Manager'
+            elif prog == 'pavucontrol':
+                return 'Volume Mixer'
+            elif prog == 'qs':
+                if 'launcher' in raw_cmd: return 'App Launcher'
+                if 'clipboard' in raw_cmd: return 'Clipboard History'
+                if 'cheatsheet' in raw_cmd: return 'Cheatsheet'
+                if 'power' in raw_cmd: return 'Power Menu'
+                if 'bar' in raw_cmd and 'nextWorkspace' in raw_cmd: return 'Next Bar Workspace'
+                if 'bar' in raw_cmd and 'prevWorkspace' in raw_cmd: return 'Previous Bar Workspace'
+            return f'Launch {prog.capitalize()}'
+        return f'Run: {raw_cmd[:28]}'
+    
+    words = act.split()
+    if words:
+        name = words[0].replace('-', ' ').title()
+        args = ' '.join(words[1:])
+        return f'{name} {args}'.strip()
+    return act
+
+def categorize_bind(cat_raw, action, chord):
+    c_lower = (cat_raw + ' ' + action + ' ' + chord).lower()
+    if any(k in c_lower for k in ['screenshot', 'print', 'slurp']):
+        return 'Screenshots'
+    if any(k in c_lower for k in ['audio', 'volume', 'xf86', 'brightness', 'media', 'play', 'pause', 'next', 'prev', 'monitors']):
+        return 'Media & Audio'
+    if any(k in c_lower for k in ['workspace', 'monitor']):
+        return 'Workspaces'
+    if any(k in c_lower for k in ['focus', 'move-column', 'consume', 'expel', 'window', 'close-window', 'center-column']):
+        return 'Windows & Navigation'
+    if any(k in c_lower for k in ['layout', 'column-width', 'preset', 'height', 'width', 'gap', 'fullscreen']):
+        return 'Layout & Sizing'
+    if any(k in c_lower for k in ['launcher', 'clipboard', 'cheatsheet', 'bar', 'panel', 'fuzzel']):
+        return 'Shell & Panels'
+    if any(k in c_lower for k in ['terminal', 'files', 'kitty', 'nautilus', 'app', 'localsend']):
+        return 'Apps & Launchers'
+    if any(k in c_lower for k in ['quit', 'power', 'lock', 'reboot', 'suspend', 'emergency', 'inhibit']):
+        return 'Session & Power'
+    return 'Windows & Navigation'
+
+def get_niri_binds():
+    config_dir = os.path.expanduser('~/.config/niri')
+    files = [os.path.join(config_dir, 'config.kdl')]
+    config_d = os.path.join(config_dir, 'config.d')
+    if os.path.isdir(config_d):
+        files.extend(sorted(glob.glob(os.path.join(config_d, '*.kdl'))))
+    
+    binds = []
+    seen = set()
+    
+    for fpath in files:
+        if not os.path.exists(fpath): continue
+        with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            
+        current_header = os.path.basename(fpath)
+        for idx, line in enumerate(lines):
+            line_str = line.strip()
+            if line_str.startswith('//') and any(s in line_str for s in ['══', '──']):
+                if idx + 1 < len(lines):
+                    nl = lines[idx+1].strip().lstrip('/ ').strip()
+                    if nl and not nl.startswith('═') and not nl.startswith('─'):
+                        current_header = nl
+                        
+            m = re.match(r'^\s*([A-Za-z0-9_+-]+(?:[+][A-Za-z0-9_+-]+)*)\s*(.*?)\s*\{(.*)', line)
+            if m:
+                chord = m.group(1).strip()
+                meta = m.group(2).strip()
+                rest = m.group(3).strip()
+                
+                if chord in ['layout', 'window-rule', 'binds', 'prefer-no-csd', 'hotkey-overlay', 'debug', 'input', 'output', 'cursor', 'environment']:
+                    continue
+                if not any(k in chord for k in ['Mod', 'Ctrl', 'Alt', 'Shift', 'Super', 'XF86', 'Print', 'Home', 'End', 'Page', 'Left', 'Right', 'Up', 'Down', 'TAB', 'Return', 'Space', 'Delete', 'Backspace', 'Escape']):
+                    continue
+                
+                title = ''
+                title_m = re.search(r'hotkey-overlay-title=[\"\']([^\"\']+)[\"\']', meta)
+                if title_m:
+                    title = title_m.group(1).strip()
+                
+                action = ''
+                if rest and '}' in rest:
+                    action = rest.split('}')[0].strip()
+                else:
+                    for next_idx in range(idx + 1, min(idx + 6, len(lines))):
+                        sub_l = lines[next_idx].strip()
+                        if '}' in sub_l:
+                            inner = sub_l.split('}')[0].strip()
+                            if inner: action = inner
+                            break
+                        elif sub_l and not sub_l.startswith('//'):
+                            action = sub_l.rstrip(';').strip()
+                            break
+                
+                if not title:
+                    title = clean_action_title(action) if action else chord
+                    
+                cat = categorize_bind(current_header, action, chord)
+                key_tuple = (chord, title)
+                if key_tuple not in seen:
+                    seen.add(key_tuple)
+                    binds.append({
+                        'chord': chord,
+                        'title': title,
+                        'action': action,
+                        'category': cat,
+                        'keys': chord.split('+')
+                    })
+    return binds
+
 def main():
     if len(sys.argv) <= 1 or sys.argv[1] == "status":
         print(json.dumps(get_status()))
@@ -935,11 +1193,24 @@ def main():
                 subprocess.Popen(['waylock'], start_new_session=True)
         elif action == "sleep":
             subprocess.Popen(['systemctl', 'suspend'])
+        elif action == "logout":
+            if shutil.which('niri'):
+                subprocess.Popen(['niri', 'msg', 'action', 'quit', '--skip-confirmation'])
+            else:
+                subprocess.Popen(['loginctl', 'terminate-user', os.environ.get('USER', '')])
         elif action == "reboot":
             subprocess.Popen(['systemctl', 'reboot'])
         elif action == "poweroff":
             subprocess.Popen(['systemctl', 'poweroff'])
+        elif action == "firmware":
+            subprocess.Popen(['systemctl', 'reboot', '--firmware-setup'])
         print(json.dumps({"status": "ok", "action": action}))
+
+    elif cmd == "get-system-info":
+        print(json.dumps(get_system_info()))
+
+    elif cmd == "get-binds":
+        print(json.dumps(get_niri_binds()))
 
     elif cmd == "caffeine-status":
         # Check if inhibitor is active

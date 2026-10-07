@@ -49,6 +49,13 @@ ShellRoot {
         }
     }
 
+    property string pendingPowerAction: ""
+
+    function openPowerConfirmation(actionId) {
+        root.pendingPowerAction = actionId
+        openPopup("power")
+    }
+
     function openPopup(name) {
         popupCloseTimer.stop()
         root.isPopupClosing = false
@@ -59,11 +66,18 @@ ShellRoot {
             if (sysStats.wallhavenList.length === 0) {
                 sysStats.searchWallhaven("", "toplist", 1)
             }
+        } else if (name === "power") {
+            sysStats.loadSystemInfo()
+        } else if (name === "cheatsheet") {
+            sysStats.loadNiriBinds()
         }
     }
 
     function closePopup(instant) {
         if (root.activePopup === "" && !root.isPopupClosing) return
+        if (root.activePopup === "power") {
+            root.pendingPowerAction = ""
+        }
         if (instant) {
             popupCloseTimer.stop()
             root.isPopupClosing = false
@@ -142,11 +156,11 @@ ShellRoot {
     // IPC Handler to control bar position and bar-workspaces
     IpcHandler {
         target: "bar"
-        function setTop(): void { root.setBarPosition("top") }
-        function setBottom(): void { root.setBarPosition("bottom") }
-        function nextWorkspace(): void { root.nextBarWorkspace() }
-        function prevWorkspace(): void { root.prevBarWorkspace() }
-        function setWorkspace(idx: int): void { root.setBarWorkspace(idx) }
+        function setTop() { root.setBarPosition("top") }
+        function setBottom() { root.setBarPosition("bottom") }
+        function nextWorkspace() { root.nextBarWorkspace() }
+        function prevWorkspace() { root.prevBarWorkspace() }
+        function setWorkspace(idx: int) { root.setBarWorkspace(idx) }
     }
 
     // IPC Handler for notifications
@@ -162,6 +176,34 @@ ShellRoot {
             }
             root.hasUnreadNotifications = false
         }
+    }
+
+    // IPC Handlers for Safe Power & Session Menu
+    IpcHandler {
+        target: "power"
+        function toggle() { root.togglePopup("power") }
+        function open() { root.openPopup("power") }
+        function close() { root.closePopup(false) }
+        function lock() { sysStats.powerAction("lock") }
+        function sleep() { root.openPowerConfirmation("sleep") }
+        function logout() { root.openPowerConfirmation("logout") }
+        function reboot() { root.openPowerConfirmation("reboot") }
+        function poweroff() { root.openPowerConfirmation("poweroff") }
+    }
+
+    IpcHandler {
+        target: "powermenu"
+        function toggle() { root.togglePopup("power") }
+        function open() { root.openPopup("power") }
+        function close() { root.closePopup(false) }
+    }
+
+    // IPC Handler for Niri Keybinding Cheatsheet
+    IpcHandler {
+        target: "cheatsheet"
+        function toggle() { root.togglePopup("cheatsheet") }
+        function open() { root.openPopup("cheatsheet") }
+        function close() { root.closePopup(false) }
     }
 
     // Notification timestamps & unread state
@@ -259,6 +301,36 @@ ShellRoot {
         if (idx >= root.barWorkspaceCount) idx = root.barWorkspaceCount - 1
         if (root.barWorkspaceIndex !== idx) {
             root.barWorkspaceIndex = idx
+        }
+    }
+
+    // Auto-revert bar-workspace back to Workspace 0 (Overview)
+    property int barWorkspaceTimeout: (sysStats.config && sysStats.config.bar_workspace_timeout !== undefined) ? (sysStats.config.bar_workspace_timeout * 1000) : 15000
+
+    Timer {
+        id: barWorkspaceRevertTimer
+        interval: Math.max(3000, root.barWorkspaceTimeout)
+        repeat: false
+        onTriggered: {
+            if (root.barWorkspaceIndex !== 0) {
+                let isInteracting = (root.activePopup !== "") ||
+                                    root.isActionActive ||
+                                    root.isToastActive ||
+                                    (typeof pillCluster !== "undefined" && pillCluster.isHovered)
+                if (!isInteracting) {
+                    root.setBarWorkspace(0)
+                } else {
+                    barWorkspaceRevertTimer.restart()
+                }
+            }
+        }
+    }
+
+    onBarWorkspaceIndexChanged: {
+        if (barWorkspaceIndex !== 0) {
+            barWorkspaceRevertTimer.restart()
+        } else {
+            barWorkspaceRevertTimer.stop()
         }
     }
 
@@ -496,6 +568,8 @@ ShellRoot {
         ])
         property var appsList: []
         property var clipboardList: []
+        property var systemInfo: ({ "user": "", "hostname": "", "uptime": "", "host_str": "" })
+        property var niriBinds: []
 
         // Connectivity & Status
         property var wifiData: ({ "powered": true, "connected": false, "ssid": "Disconnected", "signal": 0, "networks": [] })
@@ -825,6 +899,50 @@ ShellRoot {
             sysStats.clipboardList = []
         }
 
+        // System Info Fetcher (for Power Menu)
+        property Process sysInfoProc: Process {
+            id: sysInfoProc
+            command: ["python3", sysStats.scriptPath, "get-system-info"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let data = JSON.parse(text)
+                        if (data && typeof data === "object") {
+                            sysStats.systemInfo = data
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function loadSystemInfo() {
+            if (!sysInfoProc.running) {
+                sysInfoProc.running = true
+            }
+        }
+
+        // Niri Keybinds Fetcher (for Cheatsheet)
+        property Process bindsProc: Process {
+            id: bindsProc
+            command: ["python3", sysStats.scriptPath, "get-binds"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        let list = JSON.parse(text)
+                        if (Array.isArray(list)) {
+                            sysStats.niriBinds = list
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function loadNiriBinds() {
+            if (!bindsProc.running) {
+                bindsProc.running = true
+            }
+        }
+
         function launchApp(execCmd) {
             actionProc.command = ["python3", sysStats.scriptPath, "launch-app", execCmd]
             actionProc.running = true
@@ -1106,6 +1224,9 @@ ShellRoot {
                             if (root.activePopup === "" && !clusterHover.hovered) {
                                 collapseTimer.restart()
                             }
+                            if (root.activePopup === "" && root.barWorkspaceIndex !== 0) {
+                                barWorkspaceRevertTimer.restart()
+                            }
                         }
                     }
 
@@ -1125,8 +1246,10 @@ ShellRoot {
                             if (hovered) {
                                 collapseTimer.stop()
                                 pillCluster.isHovered = true
+                                if (root.barWorkspaceIndex !== 0) barWorkspaceRevertTimer.stop()
                             } else {
                                 collapseTimer.restart()
+                                if (root.barWorkspaceIndex !== 0) barWorkspaceRevertTimer.restart()
                             }
                         }
                     }
@@ -1294,14 +1417,13 @@ ShellRoot {
                                                 anchors.centerIn: parent
                                                 spacing: 6
 
-                                                // Icon only visible when hovered (or app context menu open)
+                                                // Icon permanently visible when focused app is present
                                                 Item {
                                                     anchors.verticalCenter: parent.verticalCenter
-                                                    width: (centerPill.isPillHovered || root.activePopup === "appcontext") ? 16 : 0
+                                                    width: 16
                                                     height: 16
-                                                    visible: width > 0
+                                                    visible: true
                                                     clip: true
-                                                    Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
                                                     Image {
                                                         id: appRealIcon
@@ -1965,6 +2087,49 @@ ShellRoot {
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: root.togglePopup("wallpaper")
+                                        }
+                                    }
+
+                                    // Separator
+                                    Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 14; color: theme.borderLight }
+
+                                    // 8. Power & Session Menu
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        height: 24
+                                        radius: 12
+                                        color: (powerCtrlMouse.containsMouse || root.activePopup === "power") ? theme.surfaceHover : "transparent"
+                                        width: powerCtrlRow.implicitWidth + 10
+                                        clip: true
+
+                                        Row {
+                                            id: powerCtrlRow
+                                            anchors.centerIn: parent
+                                            spacing: 5
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "󰐥"
+                                                font.pixelSize: 13
+                                                color: (powerCtrlMouse.containsMouse || root.activePopup === "power") ? theme.danger : theme.textMuted
+                                            }
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: centerPill.isPillHovered
+                                                text: "Power"
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                color: powerCtrlMouse.containsMouse ? theme.danger : theme.text
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: powerCtrlMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.togglePopup("power")
                                         }
                                     }
 
@@ -2949,7 +3114,7 @@ ShellRoot {
                 color: "transparent"
                 WlrLayershell.namespace: "quickshell:simple-bar-popups"
                 WlrLayershell.layer: WlrLayer.Overlay
-                WlrLayershell.keyboardFocus: ((root.activePopup === "apps" || root.activePopup === "clipboard" || root.activePopup === "wallpaper") && !root.isPopupClosing) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+                WlrLayershell.keyboardFocus: ((root.activePopup === "apps" || root.activePopup === "clipboard" || root.activePopup === "wallpaper" || root.activePopup === "power" || root.activePopup === "cheatsheet") && !root.isPopupClosing) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
                 exclusionMode: ExclusionMode.Ignore
 
                 // Click-outside background to dismiss popup
@@ -3913,8 +4078,12 @@ ShellRoot {
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            root.closePopup(false)
-                                            sysStats.powerAction(modelData.id)
+                                            if (modelData.id === "lock") {
+                                                root.closePopup(false)
+                                                sysStats.powerAction(modelData.id)
+                                            } else {
+                                                root.openPowerConfirmation(modelData.id)
+                                            }
                                         }
                                     }
                                 }
@@ -4705,21 +4874,107 @@ ShellRoot {
                         let list = sysStats.appsList || []
                         let q = searchQuery.toLowerCase().trim()
                         let cat = activeCategory
-                        return list.filter(app => {
+                        let filtered = list.filter(app => {
                             let matchCat = (cat === "All") || (app.category === cat)
                             if (!matchCat) return false
                             if (!q) return true
-                            return (app.name && app.name.toLowerCase().includes(q)) ||
-                                   (app.comment && app.comment.toLowerCase().includes(q)) ||
-                                   (app.exec && app.exec.toLowerCase().includes(q))
+                            let nameMatch = app.name && app.name.toLowerCase().includes(q)
+                            let commentMatch = app.comment && app.comment.toLowerCase().includes(q)
+                            let execMatch = false
+                            if (!app.is_web_app && app.exec) {
+                                let cmdBase = app.exec.split(" ")[0].toLowerCase()
+                                let cleanBase = cmdBase.split("/").pop()
+                                execMatch = cleanBase.includes(q) || app.exec.toLowerCase().includes(q)
+                            }
+                            return nameMatch || commentMatch || execMatch
                         })
+
+                        if (q) {
+                            filtered.sort((a, b) => {
+                                let aName = (a.name || "").toLowerCase()
+                                let bName = (b.name || "").toLowerCase()
+                                let aStarts = aName.startsWith(q)
+                                let bStarts = bName.startsWith(q)
+                                if (aStarts && !bStarts) return -1
+                                if (!aStarts && bStarts) return 1
+                                return aName.localeCompare(bName)
+                            })
+                        }
+                        return filtered
+                    }
+
+                    function evaluateMath(raw) {
+                        if (!raw) return null
+                        let s = raw.trim()
+                        if (s.startsWith("=")) s = s.substring(1).trim()
+                        if (s.endsWith("=")) s = s.substring(0, s.length - 1).trim()
+                        if (!/\d/.test(s)) return null
+
+                        s = s.replace(/(\d),(\d)/g, "$1$2")
+                        s = s.replace(/([0-9.]+)%\s*(?:of|\*)\s*([0-9.]+)/gi, "($1/100)*$2")
+                        s = s.replace(/([0-9.]+)\s*\+\s*([0-9.]+)%/g, "($1*(1+($2/100)))")
+                        s = s.replace(/([0-9.]+)\s*-\s*([0-9.]+)%/g, "($1*(1-($2/100)))")
+                        s = s.replace(/([0-9.]+)%/g, "($1/100)")
+                        s = s.replace(/\^/g, "**")
+                        s = s.replace(/([0-9])\s*[xX]\s*([0-9])/g, "$1 * $2")
+                        s = s.replace(/([0-9])\s*\(/g, "$1 * (")
+                        s = s.replace(/\)\s*([0-9])/g, ") * $1")
+                        s = s.replace(/\bpi\b/gi, "Math.PI")
+                        s = s.replace(/\be\b/gi, "Math.E")
+
+                        let allowedFuncs = ["sqrt", "abs", "round", "floor", "ceil", "sin", "cos", "tan", "log", "exp"]
+                        for (let i = 0; i < allowedFuncs.length; i++) {
+                            let fn = allowedFuncs[i]
+                            let re = new RegExp("\\b" + fn + "\\(", "gi")
+                            s = s.replace(re, "Math." + fn + "(")
+                        }
+                        s = s.replace(/\bln\(/gi, "Math.log(")
+                        s = s.replace(/([0-9]+)!/g, function(match, n) {
+                            let num = parseInt(n)
+                            if (num > 170) return "Infinity"
+                            let r = 1
+                            for (let i = 2; i <= num; i++) r *= i
+                            return String(r)
+                        })
+
+                        let hasMathOp = /[\+\-\*\/\^%!]/.test(raw) || /(sqrt|abs|round|floor|ceil|sin|cos|tan|log|pi|e)\b/i.test(raw)
+                        if (!hasMathOp && !raw.trim().startsWith("=")) return null
+
+                        let sanitized = s.replace(/Math\.(PI|E|sqrt|abs|round|floor|ceil|sin|cos|tan|log|exp)/g, "")
+                        if (/[a-zA-Z_$]/.test(sanitized)) return null
+
+                        try {
+                            let fn = new Function("return (" + s + ")")
+                            let res = fn()
+                            if (typeof res === "number" && !isNaN(res) && isFinite(res)) {
+                                if (Number.isInteger(res)) return String(res)
+                                return String(parseFloat(res.toPrecision(12)))
+                            }
+                        } catch(e) {
+                            return null
+                        }
+                        return null
+                    }
+
+                    property string calcResult: evaluateMath(searchQuery) || ""
+                    readonly property bool hasCalcResult: calcResult !== ""
+
+                    function copyCalcResult() {
+                        if (!calcResult) return
+                        Quickshell.execDetached(["wl-copy", String(calcResult)])
+                        root.showToast("Calculator", `= ${calcResult} copied to clipboard`, "󰃬")
+                        root.closePopup(false)
                     }
 
                     property var currentApps: getFilteredApps()
 
                     onSearchQueryChanged: {
                         currentApps = getFilteredApps()
-                        selectedIndex = 0
+                        if (hasCalcResult && currentApps.length === 0) {
+                            selectedIndex = -1
+                        } else {
+                            selectedIndex = 0
+                        }
                         if (appsScrollView && appsScrollView.contentItem) {
                             appsScrollView.contentItem.contentY = 0
                         }
@@ -4790,7 +5045,7 @@ ShellRoot {
                                 Text {
                                     id: appCountText
                                     anchors.centerIn: parent
-                                    text: `${appsPanel.currentApps.length} apps`
+                                    text: appsPanel.hasCalcResult ? "Calculator" : `${appsPanel.currentApps.length} apps`
                                     font.pixelSize: 10
                                     font.bold: true
                                     color: theme.textMuted
@@ -4854,14 +5109,22 @@ ShellRoot {
 
                                     Keys.onEscapePressed: root.closePopup(false)
                                     Keys.onReturnPressed: {
+                                        if (appsPanel.hasCalcResult && (appsPanel.selectedIndex === -1 || appsPanel.currentApps.length === 0)) {
+                                            appsPanel.copyCalcResult()
+                                            return
+                                        }
                                         if (appsPanel.currentApps.length > 0) {
                                             let idx = Math.max(0, Math.min(appsPanel.selectedIndex, appsPanel.currentApps.length - 1))
                                             sysStats.launchApp(appsPanel.currentApps[idx].exec)
                                             root.closePopup(false)
+                                        } else if (appsPanel.hasCalcResult) {
+                                            appsPanel.copyCalcResult()
                                         }
                                     }
                                     Keys.onDownPressed: {
-                                        if (appsPanel.currentApps.length > 0) {
+                                        if (appsPanel.selectedIndex === -1 && appsPanel.currentApps.length > 0) {
+                                            appsPanel.selectedIndex = 0
+                                        } else if (appsPanel.currentApps.length > 0) {
                                             let next = appsPanel.selectedIndex + 2
                                             if (next >= appsPanel.currentApps.length && appsPanel.selectedIndex % 2 === 0 && appsPanel.selectedIndex + 1 < appsPanel.currentApps.length) {
                                                 next = appsPanel.selectedIndex + 1
@@ -4870,7 +5133,9 @@ ShellRoot {
                                         }
                                     }
                                     Keys.onUpPressed: {
-                                        if (appsPanel.currentApps.length > 0) {
+                                        if (appsPanel.hasCalcResult && appsPanel.selectedIndex <= 1) {
+                                            appsPanel.selectedIndex = -1
+                                        } else if (appsPanel.currentApps.length > 0) {
                                             appsPanel.selectedIndex = Math.max(0, appsPanel.selectedIndex - 2)
                                         }
                                     }
@@ -4923,13 +5188,95 @@ ShellRoot {
                             }
                         }
 
-                        // Category Filter Pills
+                        // Calculator Result Card
+                        Rectangle {
+                            id: calcCard
+                            Layout.fillWidth: true
+                            implicitHeight: 60
+                            Layout.preferredHeight: 60
+                            visible: appsPanel.hasCalcResult
+                            radius: 12
+                            clip: true
+                            color: (appsPanel.selectedIndex === -1 || calcCardMouse.containsMouse) ? theme.accentSurface : theme.surface
+                            border.color: (appsPanel.selectedIndex === -1 || calcCardMouse.containsMouse) ? theme.accent : theme.border
+                            border.width: (appsPanel.selectedIndex === -1) ? 1.5 : 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                spacing: 14
+
+                                Rectangle {
+                                    width: 36
+                                    height: 36
+                                    radius: 9
+                                    color: theme.surfaceHover
+                                    Layout.preferredWidth: 36
+                                    Layout.preferredHeight: 36
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "󰃬"
+                                        font.pixelSize: 18
+                                        color: theme.accent
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        text: appsPanel.searchQuery
+                                        font.pixelSize: 11
+                                        color: theme.textMuted
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        text: `= ${appsPanel.calcResult}`
+                                        font.pixelSize: 16
+                                        font.bold: true
+                                        color: theme.text
+                                    }
+                                }
+
+                                Rectangle {
+                                    height: 26
+                                    radius: 6
+                                    color: theme.surfaceActive
+                                    border.color: theme.borderLight
+                                    border.width: 1
+                                    Layout.preferredHeight: 26
+                                    Layout.preferredWidth: copyTip.implicitWidth + 16
+                                    Text {
+                                        id: copyTip
+                                        anchors.centerIn: parent
+                                        text: "↵ Copy"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.accent
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                id: calcCardMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: appsPanel.copyCalcResult()
+                            }
+                        }
+
+                        // Category Filter Pills (hidden during pure calculations)
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 6
+                            visible: !appsPanel.hasCalcResult || appsPanel.currentApps.length > 0
 
                             Repeater {
-                                model: ["All", "System", "Development", "Internet", "Media", "Office", "Utility"]
+                                model: ["All", "System", "Development", "Internet", "Media", "Games", "Office", "Utility"]
 
                                 delegate: Rectangle {
                                     required property string modelData
@@ -4961,11 +5308,37 @@ ShellRoot {
                             }
                         }
 
+                        // Calculator Empty State Helper Hint
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: appsPanel.hasCalcResult && appsPanel.currentApps.length === 0
+
+                            ColumnLayout {
+                                anchors.centerIn: parent
+                                spacing: 8
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "󰃬"
+                                    font.pixelSize: 32
+                                    color: theme.textMuted
+                                    opacity: 0.35
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "Press Enter or click the card to copy result to clipboard"
+                                    font.pixelSize: 12
+                                    color: theme.textMuted
+                                }
+                            }
+                        }
+
                         // App Cards Grid (Flow for proper 2-col layout without overlapping)
                         ScrollView {
                             id: appsScrollView
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            visible: appsPanel.currentApps.length > 0
                             clip: true
                             contentWidth: availableWidth
 
@@ -6710,6 +7083,869 @@ ShellRoot {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL J: SAFE POWER & SESSION MENU (with Confirmations)
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: powerPanel
+                    readonly property bool isShown: root.activePopup === "power" && !root.isPopupClosing
+                    visible: root.displayedPopup === "power"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: 560
+                    height: 380
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: root.pendingPowerAction !== "" ? theme.danger : theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                    transform: Translate {
+                        y: powerPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    FocusScope {
+                        id: powerFocusScope
+                        anchors.fill: parent
+                        focus: powerPanel.isShown
+
+                        Keys.onEscapePressed: {
+                            if (root.pendingPowerAction !== "") {
+                                root.pendingPowerAction = ""
+                            } else {
+                                root.closePopup(false)
+                            }
+                        }
+
+                        Keys.onReturnPressed: {
+                            if (root.pendingPowerAction !== "") {
+                                let act = root.pendingPowerAction
+                                root.pendingPowerAction = ""
+                                root.closePopup(false)
+                                sysStats.powerAction(act)
+                            }
+                        }
+
+                        Keys.onPressed: function(event) {
+                            if (root.pendingPowerAction === "") {
+                                if (event.key === Qt.Key_1) {
+                                    root.closePopup(false)
+                                    sysStats.powerAction("lock")
+                                } else if (event.key === Qt.Key_2) {
+                                    root.pendingPowerAction = "sleep"
+                                } else if (event.key === Qt.Key_3) {
+                                    root.pendingPowerAction = "logout"
+                                } else if (event.key === Qt.Key_4) {
+                                    root.pendingPowerAction = "reboot"
+                                } else if (event.key === Qt.Key_5) {
+                                    root.pendingPowerAction = "poweroff"
+                                } else if (event.key === Qt.Key_6) {
+                                    root.pendingPowerAction = "firmware"
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 18
+                            spacing: 14
+
+                            // Header
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Text {
+                                    text: "󰐥"
+                                    font.pixelSize: 18
+                                    color: root.pendingPowerAction !== "" ? theme.danger : theme.accent
+                                }
+
+                                Text {
+                                    text: "Power & Session"
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    color: theme.text
+                                }
+
+                                Rectangle {
+                                    height: 20
+                                    radius: 10
+                                    color: theme.surface
+                                    border.color: theme.border
+                                    border.width: 1
+                                    width: hostBadgeText.implicitWidth + 12
+
+                                    Text {
+                                        id: hostBadgeText
+                                        anchors.centerIn: parent
+                                        text: sysStats.systemInfo.host_str || "Session"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: theme.textMuted
+                                    }
+                                }
+
+                                Rectangle {
+                                    height: 20
+                                    radius: 10
+                                    color: theme.surface
+                                    border.color: theme.border
+                                    border.width: 1
+                                    width: uptimeBadgeText.implicitWidth + 12
+
+                                    Text {
+                                        id: uptimeBadgeText
+                                        anchors.centerIn: parent
+                                        text: "󰅐 " + (sysStats.systemInfo.uptime || "Active")
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: theme.accent
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Rectangle {
+                                    width: 26; height: 26; radius: 13
+                                    color: closePwrHov.containsMouse ? theme.surfaceHover : "transparent"
+                                    Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
+                                    MouseArea {
+                                        id: closePwrHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (root.pendingPowerAction !== "") {
+                                                root.pendingPowerAction = ""
+                                            } else {
+                                                root.closePopup(false)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Body Stack: Selection Mode vs Confirmation Mode
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                // Mode 1: Main Grid of Actions
+                                Item {
+                                    anchors.fill: parent
+                                    visible: root.pendingPowerAction === ""
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        spacing: 12
+
+                                        GridLayout {
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            columns: 3
+                                            columnSpacing: 10
+                                            rowSpacing: 10
+
+                                            Repeater {
+                                                model: [
+                                                    { id: "lock", label: "Lock Screen", desc: "Lock desktop session", icon: "󰌾", color: theme.accent, key: "1", danger: false },
+                                                    { id: "sleep", label: "Suspend", desc: "Sleep system to RAM", icon: "󰒲", color: theme.warning, key: "2", danger: false },
+                                                    { id: "logout", label: "Log Out", desc: "End Wayland session", icon: "󰍃", color: theme.secondary, key: "3", danger: false },
+                                                    { id: "reboot", label: "Restart", desc: "Reboot computer", icon: "󰜉", color: theme.warning, key: "4", danger: false },
+                                                    { id: "poweroff", label: "Shut Down", desc: "Power off hardware", icon: "󰐥", color: theme.danger, key: "5", danger: true },
+                                                    { id: "firmware", label: "UEFI / BIOS", desc: "Reboot to setup", icon: "󰌢", color: theme.accent, key: "6", danger: false }
+                                                ]
+
+                                                delegate: Rectangle {
+                                                    required property var modelData
+                                                    Layout.fillWidth: true
+                                                    Layout.fillHeight: true
+                                                    radius: 12
+                                                    color: tileHov.containsMouse ? (modelData.danger ? "#2b1419" : theme.surfaceHover) : theme.surface
+                                                    border.color: tileHov.containsMouse ? (modelData.danger ? theme.danger : modelData.color) : theme.border
+                                                    border.width: 1
+
+                                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                                    Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                                                    ColumnLayout {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 12
+                                                        spacing: 6
+
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                            Text {
+                                                                text: modelData.icon
+                                                                font.pixelSize: 22
+                                                                color: tileHov.containsMouse ? (modelData.danger ? theme.danger : modelData.color) : modelData.color
+                                                            }
+                                                            Item { Layout.fillWidth: true }
+                                                            Rectangle {
+                                                                width: 18; height: 18; radius: 4
+                                                                color: theme.surfaceActive
+                                                                border.color: theme.borderLight
+                                                                border.width: 1
+                                                                Text {
+                                                                    anchors.centerIn: parent
+                                                                    text: modelData.key
+                                                                    font.pixelSize: 9
+                                                                    font.bold: true
+                                                                    font.family: "monospace"
+                                                                    color: theme.textMuted
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Item { Layout.fillHeight: true }
+
+                                                        Text {
+                                                            text: modelData.label
+                                                            font.pixelSize: 13
+                                                            font.bold: true
+                                                            color: theme.text
+                                                        }
+
+                                                        Text {
+                                                            text: modelData.desc
+                                                            font.pixelSize: 10
+                                                            color: theme.textMuted
+                                                            elide: Text.ElideRight
+                                                            Layout.fillWidth: true
+                                                        }
+                                                    }
+
+                                                    MouseArea {
+                                                        id: tileHov
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            if (modelData.id === "lock") {
+                                                                root.closePopup(false)
+                                                                sysStats.powerAction("lock")
+                                                            } else {
+                                                                root.pendingPowerAction = modelData.id
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Footer hints
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.topMargin: 4
+                                            Item { Layout.fillWidth: true }
+                                            Text {
+                                                text: "Press [1-6] for quick select • [Esc] to cancel"
+                                                font.pixelSize: 10
+                                                color: theme.textMuted
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                        }
+                                    }
+                                }
+
+                                // Mode 2: Confirmation Guard View
+                                Item {
+                                    anchors.fill: parent
+                                    visible: root.pendingPowerAction !== ""
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 16
+                                        width: parent.width - 40
+
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            width: 64; height: 64; radius: 32
+                                            color: root.pendingPowerAction === "poweroff" ? "#3b171c" : (root.pendingPowerAction === "reboot" ? "#3b2e17" : theme.surface)
+                                            border.color: root.pendingPowerAction === "poweroff" ? theme.danger : (root.pendingPowerAction === "reboot" ? theme.warning : theme.accent)
+                                            border.width: 2
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: root.pendingPowerAction === "poweroff" ? "󰐥" : (root.pendingPowerAction === "reboot" ? "󰜉" : (root.pendingPowerAction === "logout" ? "󰍃" : (root.pendingPowerAction === "sleep" ? "󰒲" : "󰌢")))
+                                                font.pixelSize: 28
+                                                color: root.pendingPowerAction === "poweroff" ? theme.danger : (root.pendingPowerAction === "reboot" ? theme.warning : theme.accent)
+                                            }
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.alignment: Qt.AlignHCenter
+                                            spacing: 6
+
+                                            Text {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: root.pendingPowerAction === "poweroff" ? "Shut down computer?" : (root.pendingPowerAction === "reboot" ? "Restart computer?" : (root.pendingPowerAction === "logout" ? "Log out of session?" : (root.pendingPowerAction === "sleep" ? "Suspend computer?" : "Reboot into UEFI Firmware?")))
+                                                font.pixelSize: 17
+                                                font.bold: true
+                                                color: theme.text
+                                            }
+
+                                            Text {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: "All unsaved work and active window sessions will be closed."
+                                                font.pixelSize: 11
+                                                color: theme.textMuted
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            spacing: 12
+                                            Layout.topMargin: 8
+
+                                            // Cancel button
+                                            Rectangle {
+                                                width: 140; height: 38
+                                                radius: 10
+                                                color: cancelHov.containsMouse ? theme.surfaceHover : theme.surface
+                                                border.color: theme.border
+                                                border.width: 1
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    spacing: 6
+                                                    Text { text: "󰅖"; font.pixelSize: 13; color: theme.textMuted }
+                                                    Text { text: "Cancel (Esc)"; font.pixelSize: 12; font.weight: Font.DemiBold; color: theme.text }
+                                                }
+
+                                                MouseArea {
+                                                    id: cancelHov
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.pendingPowerAction = ""
+                                                }
+                                            }
+
+                                            // Confirm button
+                                            Rectangle {
+                                                width: 170; height: 38
+                                                radius: 10
+                                                color: confirmHov.containsMouse ? (root.pendingPowerAction === "poweroff" ? "#d14b68" : theme.accentHover) : (root.pendingPowerAction === "poweroff" ? theme.danger : theme.accent)
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    spacing: 6
+                                                    Text {
+                                                        text: root.pendingPowerAction === "poweroff" ? "󰐥" : (root.pendingPowerAction === "reboot" ? "󰜉" : (root.pendingPowerAction === "logout" ? "󰍃" : "󰒲"))
+                                                        font.pixelSize: 13
+                                                        color: "#000000"
+                                                    }
+                                                    Text {
+                                                        text: "Confirm (Enter)"
+                                                        font.pixelSize: 12
+                                                        font.bold: true
+                                                        color: "#000000"
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: confirmHov
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        let act = root.pendingPowerAction
+                                                        root.pendingPowerAction = ""
+                                                        root.closePopup(false)
+                                                        sysStats.powerAction(act)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // PANEL K: NIRI KEYBINDINGS CHEATSHEET OVERLAY
+                // ─────────────────────────────────────────────────────────────
+                Rectangle {
+                    id: cheatsheetPanel
+                    readonly property bool isShown: root.activePopup === "cheatsheet" && !root.isPopupClosing
+                    visible: root.displayedPopup === "cheatsheet"
+                    y: root.barPosition === "top" ? 0 : (parent.height - height)
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    width: Math.min(parent.width - 40, 720)
+                    height: Math.min(parent.height - 40, 580)
+                    topLeftRadius: root.barPosition === "bottom" ? 20 : 0
+                    topRightRadius: root.barPosition === "bottom" ? 20 : 0
+                    bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
+                    bottomRightRadius: root.barPosition !== "bottom" ? 20 : 0
+                    color: theme.bg
+                    border.color: theme.border
+                    border.width: 1
+
+                    scale: isShown ? 1.0 : 0.95
+                    opacity: isShown ? 1.0 : 0.0
+                    transformOrigin: root.barPosition === "bottom" ? Item.Bottom : Item.Top
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    transform: Translate {
+                        y: cheatsheetPanel.isShown ? 0 : (root.barPosition === "bottom" ? 16 : -16)
+                        Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    property string searchQuery: ""
+                    property string activeCategory: "All"
+
+                    function formatKey(k) {
+                        if (k === "Mod") return "󰘳 Mod"
+                        if (k === "Return") return "󰌑 Return"
+                        if (k === "Space") return "␣ Space"
+                        if (k === "Escape") return "Esc"
+                        if (k === "Slash") return "/"
+                        if (k === "BackSlash") return "\\"
+                        if (k === "Left") return "󰁮 Left"
+                        if (k === "Right") return "󰁯 Right"
+                        if (k === "Up") return "󰁝 Up"
+                        if (k === "Down") return "󰁅 Down"
+                        if (k === "Tab" || k === "TAB") return "󰌒 Tab"
+                        if (k.startsWith("XF86AudioRaiseVolume")) return "󰕾 Vol+"
+                        if (k.startsWith("XF86AudioLowerVolume")) return "󰕾 Vol-"
+                        if (k.startsWith("XF86AudioMute")) return "󰝟 Mute"
+                        if (k.startsWith("XF86AudioMicMute")) return "󰍭 MicMute"
+                        if (k.startsWith("XF86MonBrightnessUp")) return "󰃠 Bri+"
+                        if (k.startsWith("XF86MonBrightnessDown")) return "󰃠 Bri-"
+                        return k
+                    }
+
+                    function resetSearch() {
+                        searchQuery = ""
+                        activeCategory = "All"
+                        if (cheatSearchInput) {
+                            cheatSearchInput.text = ""
+                            cheatSearchInput.forceActiveFocus()
+                        }
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            resetSearch()
+                            sysStats.loadNiriBinds()
+                        }
+                    }
+
+                    onIsShownChanged: {
+                        if (isShown) {
+                            resetSearch()
+                            sysStats.loadNiriBinds()
+                        }
+                    }
+
+                    function getFilteredBinds() {
+                        let list = sysStats.niriBinds || []
+                        let q = searchQuery.toLowerCase().trim()
+                        let cat = activeCategory
+                        return list.filter(b => {
+                            let matchCat = (cat === "All") || (b.category === cat)
+                            if (!matchCat) return false
+                            if (!q) return true
+                            let chordMatch = b.chord && b.chord.toLowerCase().includes(q)
+                            let titleMatch = b.title && b.title.toLowerCase().includes(q)
+                            let actMatch = b.action && b.action.toLowerCase().includes(q)
+                            let catMatch = b.category && b.category.toLowerCase().includes(q)
+                            return chordMatch || titleMatch || actMatch || catMatch
+                        })
+                    }
+
+                    property var currentBinds: getFilteredBinds()
+                    onSearchQueryChanged: currentBinds = getFilteredBinds()
+                    onActiveCategoryChanged: currentBinds = getFilteredBinds()
+                    Connections {
+                        target: sysStats
+                        function onNiriBindsChanged() {
+                            cheatsheetPanel.currentBinds = cheatsheetPanel.getFilteredBinds()
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+
+                        // Header
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: "󰌌"
+                                font.pixelSize: 18
+                                color: theme.accent
+                            }
+
+                            Text {
+                                text: "Niri Keybindings"
+                                font.pixelSize: 16
+                                font.bold: true
+                                color: theme.text
+                            }
+
+                            Rectangle {
+                                height: 20
+                                radius: 10
+                                color: theme.surface
+                                border.color: theme.border
+                                border.width: 1
+                                width: bindCountText.implicitWidth + 12
+
+                                Text {
+                                    id: bindCountText
+                                    anchors.centerIn: parent
+                                    text: `${cheatsheetPanel.currentBinds.length} of ${sysStats.niriBinds.length} binds`
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: theme.textMuted
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Rectangle {
+                                width: 26; height: 26; radius: 13
+                                color: closeCheatHov.containsMouse ? theme.surfaceHover : "transparent"
+                                Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 12; color: theme.textMuted }
+                                MouseArea {
+                                    id: closeCheatHov
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.closePopup(false)
+                                }
+                            }
+                        }
+
+                        // Search Box
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 38
+                            radius: 10
+                            color: theme.surface
+                            border.color: cheatSearchInput.activeFocus ? theme.accent : theme.border
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 8
+
+                                Text {
+                                    text: "󰍉"
+                                    font.pixelSize: 14
+                                    color: cheatSearchInput.activeFocus ? theme.accent : theme.textMuted
+                                }
+
+                                TextInput {
+                                    id: cheatSearchInput
+                                    Layout.fillWidth: true
+                                    font.pixelSize: 13
+                                    color: theme.text
+                                    selectByMouse: true
+                                    clip: true
+
+                                    Text {
+                                        anchors.fill: parent
+                                        text: "Search keybindings by shortcut, action, or description..."
+                                        font.pixelSize: 13
+                                        color: theme.textMuted
+                                        visible: !parent.text && !parent.activeFocus
+                                    }
+
+                                    onTextChanged: cheatsheetPanel.searchQuery = text
+
+                                    Keys.onEscapePressed: root.closePopup(false)
+                                    Keys.onDownPressed: {
+                                        if (bindsListView) bindsListView.flick(0, -200)
+                                    }
+                                    Keys.onUpPressed: {
+                                        if (bindsListView) bindsListView.flick(0, 200)
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 18; height: 18; radius: 9
+                                    color: clearCheatHov.containsMouse ? theme.surfaceHover : "transparent"
+                                    visible: cheatSearchInput.text.length > 0
+                                    Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 9; color: theme.textMuted }
+                                    MouseArea {
+                                        id: clearCheatHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            cheatSearchInput.text = ""
+                                            cheatSearchInput.forceActiveFocus()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Category Filter Chips
+                        Flickable {
+                            Layout.fillWidth: true
+                            height: 30
+                            contentWidth: catRow.implicitWidth
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Row {
+                                id: catRow
+                                spacing: 6
+
+                                Repeater {
+                                    model: ["All", "Windows & Navigation", "Workspaces", "Layout & Sizing", "Apps & Launchers", "Shell & Panels", "Media & Audio", "Screenshots", "Session & Power"]
+
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        height: 26
+                                        radius: 13
+                                        readonly property bool isSelected: cheatsheetPanel.activeCategory === modelData
+                                        color: isSelected ? theme.accentSurface : (catHov.containsMouse ? theme.surfaceHover : theme.surface)
+                                        border.color: isSelected ? theme.accent : theme.border
+                                        border.width: 1
+                                        width: catText.implicitWidth + 16
+
+                                        Text {
+                                            id: catText
+                                            anchors.centerIn: parent
+                                            text: modelData
+                                            font.pixelSize: 11
+                                            font.bold: isSelected
+                                            color: isSelected ? theme.accent : (catHov.containsMouse ? theme.text : theme.textMuted)
+                                        }
+
+                                        MouseArea {
+                                            id: catHov
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: cheatsheetPanel.activeCategory = modelData
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Keybindings List View
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            color: "transparent"
+                            clip: true
+
+                            ListView {
+                                id: bindsListView
+                                anchors.fill: parent
+                                model: cheatsheetPanel.currentBinds
+                                spacing: 6
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: bindsListView.width
+                                    height: 48
+                                    radius: 8
+                                    color: bindRowHov.containsMouse ? theme.surfaceHover : theme.surface
+                                    border.color: bindRowHov.containsMouse ? theme.borderLight : theme.border
+                                    border.width: 1
+
+                                    Behavior on color { ColorAnimation { duration: 100 } }
+                                    Behavior on border.color { ColorAnimation { duration: 100 } }
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        spacing: 12
+
+                                        // Left: Title and Action / Category
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 3
+
+                                            Text {
+                                                text: modelData.title
+                                                font.pixelSize: 12
+                                                font.weight: Font.DemiBold
+                                                color: theme.text
+                                                elide: Text.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+
+                                            RowLayout {
+                                                spacing: 6
+                                                Text {
+                                                    text: modelData.category
+                                                    font.pixelSize: 10
+                                                    color: theme.accent
+                                                }
+                                                Text {
+                                                    text: "•"
+                                                    font.pixelSize: 8
+                                                    color: theme.textMuted
+                                                }
+                                                Text {
+                                                    text: modelData.action || modelData.chord
+                                                    font.pixelSize: 10
+                                                    font.family: "monospace"
+                                                    color: theme.textMuted
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+                                            }
+                                        }
+
+                                        // Right: Physical Keycaps
+                                        Row {
+                                            spacing: 4
+                                            Layout.alignment: Qt.AlignVCenter
+
+                                            Repeater {
+                                                id: keyRepeater
+                                                model: modelData.keys
+
+                                                Row {
+                                                    spacing: 4
+                                                    anchors.verticalCenter: parent.verticalCenter
+
+                                                    Rectangle {
+                                                        height: 24
+                                                        radius: 5
+                                                        width: keyCapText.implicitWidth + 12
+                                                        color: "#141414"
+                                                        border.color: theme.borderLight
+                                                        border.width: 1
+                                                        anchors.verticalCenter: parent.verticalCenter
+
+                                                        Text {
+                                                            id: keyCapText
+                                                            anchors.centerIn: parent
+                                                            text: cheatsheetPanel.formatKey(modelData)
+                                                            font.pixelSize: 10
+                                                            font.bold: true
+                                                            font.family: "monospace"
+                                                            color: theme.accent
+                                                        }
+                                                    }
+
+                                                    Text {
+                                                        visible: index < keyRepeater.count - 1
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        text: "+"
+                                                        font.pixelSize: 10
+                                                        color: theme.textMuted
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: bindRowHov
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            Quickshell.execDetached(["wl-copy", modelData.chord])
+                                            root.showToast("Shortcut Copied", `${modelData.chord} copied to clipboard`, "󰌌")
+                                        }
+                                    }
+                                }
+
+                                // Empty state
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    visible: cheatsheetPanel.currentBinds.length === 0
+                                    spacing: 8
+
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "󰍉"
+                                        font.pixelSize: 28
+                                        color: theme.textMuted
+                                    }
+
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "No keybindings found"
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        color: theme.text
+                                    }
+
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Try searching with different terms or select 'All' categories"
+                                        font.pixelSize: 11
+                                        color: theme.textMuted
+                                    }
+                                }
+                            }
+                        }
+
+                        // Footer
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: "󰈚"
+                                font.pixelSize: 11
+                                color: theme.textMuted
+                            }
+
+                            Text {
+                                text: "~/.config/niri/config.d/70-binds.kdl"
+                                font.pixelSize: 10
+                                font.family: "monospace"
+                                color: theme.textMuted
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: "[Click to copy shortcut] • [Esc] Close"
+                                font.pixelSize: 10
+                                color: theme.textMuted
                             }
                         }
                     }
