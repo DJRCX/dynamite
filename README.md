@@ -1,6 +1,6 @@
 # 🌙 simple-bar
 
-> A minimal, pitch-black floating status pill & interactive quick-settings panels built with [Quickshell](https://quickshell.outfoxxed.me/) for Wayland compositors ([Niri](https://github.com/YaLTeR/niri), [Hyprland](https://hyprland.org/), [Sway](https://swaywm.org/)).
+> A Niri desktop shell configuration for Arch Linux, built with [Quickshell](https://quickshell.outfoxxed.me/). It combines a pitch-black floating status pill, quick-settings panels, and Niri-specific controls.
 
 ---
 
@@ -20,11 +20,17 @@
   - **Live Terminal Theming**: Automatically generates and syncs colors for **Kitty** (`current-theme.conf`) and **Foot** (`colors.ini`), with zero-restart live reload (`pkill -USR1 kitty`).
   - **Zero-Restart Reactivity**: Live synchronization through `wm-stream` IPC updates all bar pills and panels instantaneously.
   - **Persistent Autostart & Memory**: Built-in systemd user services (`awww-daemon.service` & `simple-bar.service`) restore the remembered wallpaper and palette automatically on session startup.
-- **🔗 Seamless Unified Panels**: All 9 flyout panels (Apps, Clipboard, Calendar, Connectivity, Battery, System Resources, Notifications, App Context, Wallpapers) expand to a flush 560px width with flattened connecting edges directly merging into the bar pill.
+- **🔗 Seamless Unified Panels**: All 11 flyout panels (Apps, Clipboard, Calendar, Connectivity, Battery, System Resources, Notifications, App Context, Wallpapers, Power & Session, Niri Keybindings) expand to a flush 560px width with flattened connecting edges directly merging into the bar pill.
 - **🔔 Native Notification Server & In-Pill HUD**: Built-in notification server with single-line horizontal toast HUD, newline sanitization, hover dismiss button, and click-to-expand full details in the notification center.
 - **☕ Caffeine Idle Inhibitor**: One-click system idle/sleep inhibition via `systemd-inhibit` with instant desktop feedback notifications.
 - **🚀 Integrated Application Launcher**: Categorized app drawer (`All`, `System`, `Development`, `Internet`, `Media`, etc.) with full keyboard navigation and automatic query resets.
+- **🧮 Launcher Calculator**: Enter arithmetic expressions in the app search field and copy the result directly from the launcher.
+- **⌨️ Niri Keybinding Cheatsheet**: Search and filter keybindings parsed from `~/.config/niri/config.kdl` and `~/.config/niri/config.d/*.kdl`.
+- **⏻ Power & Session Menu**: Lock, suspend, log out, reboot, power off, or enter firmware setup, with a confirmation step for disruptive actions. Shows the current host and uptime.
+- **🪟 Better App Discovery**: Includes Flatpak and desktop-folder launchers, recognizes web apps, and uses desktop-entry metadata to resolve focused-app names and icons.
+- **🧭 Timed Bar Workspaces**: The four bar workspaces can revert to Overview after a configurable timeout.
 - **📋 Visual Clipboard History Manager**: Dual-format history for copied text and image thumbnails via `cliphist`.
+- **🫥 Terminal Opacity**: The generated Kitty and Foot themes use the configurable `terminal_opacity` value from `config.json`.
 - **📐 Window Exclusive Zone**: Reserves 46px at the configured edge (top or bottom) so tiled and maximized windows never overlap the bar.
 - **🖱️ Outside-Click Dismissal**: Clicking outside any open panel or on any window instantly dismisses the panel back to the compact pill.
 
@@ -37,17 +43,19 @@ The theme relies on standard Linux utilities and Quickshell:
 | Package | Purpose |
 |---|---|
 | **quickshell** (`qs`) | Modern Qt/QML shell environment for Wayland |
-| **python3** | Lightweight asynchronous hardware query script |
+| **python3** | Hardware, Niri configuration, and desktop-app integration |
 | **wireplumber** (`wpctl`) | Audio volume & mute control |
 | **brightnessctl** | Display backlight control |
 | **networkmanager** (`nmcli`) | Wi-Fi scanning, connection, and power control |
 | **bluez** (`bluetoothctl`) | Bluetooth device pairing and connection management |
 | **awww** | High-performance Wayland wallpaper daemon with animated transitions |
-| **python-pillow** | Image processing & dynamic color extraction library |
+| **python-pillow** | Image processing and dynamic color extraction |
 | **kitty** / **foot** *(optional)* | Terminal emulators with automatic dynamic theme reloading |
 | **Nerd Fonts** | System font with icons (e.g. JetBrains Mono Nerd Font) |
 | **blueman** *(optional)* | Graphical Bluetooth manager (`blueman-manager`) |
 | **btop** *(optional)* | Terminal hardware resource monitor |
+
+On Arch Linux, install the required packages with your preferred repositories/AUR helper. The installer prints an Arch package hint when it finds missing dependencies; Quickshell and `awww` may require AUR packages depending on your setup.
 
 ---
 
@@ -62,6 +70,8 @@ cd simple-bar
 ```
 
 The installer verifies your dependencies, sets execution permissions, symlinks the configuration to `~/.config/quickshell/simple-bar`, and installs/enables systemd user services for `simple-bar` and `awww-daemon`.
+
+The checked-in `config.json` currently contains machine-specific wallpaper and weather-location values. Update those values for another machine; the wallpaper file must exist locally. `bar_workspace_timeout` is in seconds, and `terminal_opacity` is the generated Kitty/Foot background opacity (from `0.0` to `1.0`).
 
 ### Testing / Starting Manually
 
@@ -102,7 +112,7 @@ exec systemctl --user start awww-daemon.service simple-bar.service
 
 ```
 simple-bar/
-├── shell.qml                  # Declarative Quickshell interface (Bar, Balls, Panels, Sliders)
+├── shell.qml                  # Quickshell bar, panels, launcher, power menu, and Niri cheatsheet
 ├── config.json                # Persistent bar & wallpaper settings
 ├── scripts/
 │   ├── control.py             # Asynchronous hardware bridge & WM event stream
