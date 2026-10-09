@@ -1,0 +1,33 @@
+{
+  "name": "gruvbox",
+  "label": "Gruvbox",
+  "accent": "#FABD2F",
+  "accentContainer": "#63522A",
+  "onAccent": "#1E1706",
+  "island": "#000000",
+  "panel": "#1E1E1E",
+  "subpage": "#282828",
+  "card": "#302E2E",
+  "chip": "#423D3B",
+  "raised": "#363332",
+  "track": "#0F0F0F",
+  "window": "#0B0B0B",
+  "sidebar": "#0A0A0A",
+  "group": "#171717",
+  "field": "#232323",
+  "control": "#202020",
+  "switchOff": "#504945",
+  "knob": "#F0E4C5",
+  "text": "#EBDBB2",
+  "textSecondary": "#BDAE93",
+  "textMuted": "#928374",
+  "danger": "#FB4934",
+  "preview": [
+    "#CC241D",
+    "#98971A",
+    "#D79921",
+    "#458588",
+    "#B16286",
+    "#689D6A"
+  ]
+}

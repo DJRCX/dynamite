@@ -1,0 +1,33 @@
+{
+  "name": "rose-pine",
+  "label": "Ros\u00e9 Pine",
+  "accent": "#C4A7E7",
+  "accentContainer": "#4D4462",
+  "onAccent": "#18141C",
+  "island": "#000000",
+  "panel": "#171623",
+  "subpage": "#1F1D2E",
+  "card": "#252335",
+  "chip": "#343145",
+  "raised": "#2A283A",
+  "track": "#0C0B11",
+  "window": "#09080D",
+  "sidebar": "#08070B",
+  "group": "#12111B",
+  "field": "#1B1A29",
+  "control": "#191825",
+  "switchOff": "#403D52",
+  "knob": "#E8E6F7",
+  "text": "#E0DEF4",
+  "textSecondary": "#908CAA",
+  "textMuted": "#6E6A86",
+  "danger": "#EB6F92",
+  "preview": [
+    "#EB6F92",
+    "#F6C177",
+    "#EBBCBA",
+    "#31748F",
+    "#9CCFD8",
+    "#C4A7E7"
+  ]
+}

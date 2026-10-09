@@ -1,0 +1,28 @@
+input {
+    keyboard {
+        xkb {
+            layout "us"
+        }
+    }
+}
+output "winit" {
+    scale 1.0
+}
+layout {
+    gaps 16
+}
+prefer-no-csd
+hotkey-overlay {
+    skip-at-startup
+}
+binds {
+    Mod+Return { spawn "alacritty"; }
+    Mod+Space { spawn "qs" "ipc" "-p" "DYNAMITE_DIR" "call" "island" "toggle" "launcher"; }
+    Mod+Escape { spawn "qs" "ipc" "-p" "DYNAMITE_DIR" "call" "island" "toggle" "power"; }
+    Mod+Q { close-window; }
+}
+window-rule {
+    match title="^Dynamite Settings$"
+    open-floating true
+    default-column-width { fixed 1320; }
+}

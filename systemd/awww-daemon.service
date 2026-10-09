@@ -1,14 +1,10 @@
 [Unit]
-Description=Awww Wayland Wallpaper Daemon
+Description=awww wallpaper daemon
 PartOf=graphical-session.target
-After=graphical-session.target
 
 [Service]
-Type=exec
 ExecStart=/usr/bin/awww-daemon
-ExecStartPost=/bin/sh -c 'sleep 0.3; /usr/bin/python3 %h/.config/quickshell/simple-bar/scripts/theme.py init'
 Restart=on-failure
-RestartSec=2
 
 [Install]
 WantedBy=graphical-session.target

@@ -1,22 +1,3 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.pyc
-
-# Logs & temporary files
-*.log
-*.qslog
-/tmp/
-colors.json
-
-# Editor artifacts
-*~
 *.swp
-*.swo
-.vscode/
-.idea/
-
-# OS artifacts
-.DS_Store
-Thumbs.db
+*.tmp
+__pycache__/

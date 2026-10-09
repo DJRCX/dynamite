@@ -1,0 +1,33 @@
+{
+  "name": "one-dark",
+  "label": "One Dark",
+  "accent": "#61AFEF",
+  "accentContainer": "#385168",
+  "onAccent": "#0C151D",
+  "island": "#000000",
+  "panel": "#1E2127",
+  "subpage": "#282C34",
+  "card": "#2C313A",
+  "chip": "#363B47",
+  "raised": "#2F343E",
+  "track": "#0F1114",
+  "window": "#0B0C0F",
+  "sidebar": "#0A0B0D",
+  "group": "#171A1E",
+  "field": "#23272E",
+  "control": "#20242A",
+  "switchOff": "#3E4451",
+  "knob": "#C0C5CF",
+  "text": "#ABB2BF",
+  "textSecondary": "#8B929E",
+  "textMuted": "#5C6370",
+  "danger": "#E06C75",
+  "preview": [
+    "#E06C75",
+    "#D19A66",
+    "#E5C07B",
+    "#98C379",
+    "#61AFEF",
+    "#C678DD"
+  ]
+}

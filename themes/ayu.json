@@ -1,0 +1,33 @@
+{
+  "name": "ayu",
+  "label": "Ayu",
+  "accent": "#E6B450",
+  "accentContainer": "#4E432E",
+  "onAccent": "#1C160A",
+  "island": "#000000",
+  "panel": "#0E1119",
+  "subpage": "#131721",
+  "card": "#181D27",
+  "chip": "#242B35",
+  "raised": "#1C222C",
+  "track": "#07090C",
+  "window": "#050709",
+  "sidebar": "#050608",
+  "group": "#0B0D13",
+  "field": "#11141D",
+  "control": "#0F131B",
+  "switchOff": "#2D3640",
+  "knob": "#CFCEC8",
+  "text": "#BFBDB6",
+  "textSecondary": "#8A8F98",
+  "textMuted": "#565B66",
+  "danger": "#F07178",
+  "preview": [
+    "#F07178",
+    "#FF8F40",
+    "#E6B450",
+    "#AAD94C",
+    "#59C2FF",
+    "#D2A6FF"
+  ]
+}

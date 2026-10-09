@@ -1,0 +1,13 @@
+SubPage 1.0 SubPage.qml
+SectionLabel 1.0 SectionLabel.qml
+PillButton 1.0 PillButton.qml
+DeviceRow 1.0 DeviceRow.qml
+VolumeRow 1.0 VolumeRow.qml
+NetworkRow 1.0 NetworkRow.qml
+WifiPage 1.0 WifiPage.qml
+BluetoothPage 1.0 BluetoothPage.qml
+SoundPage 1.0 SoundPage.qml
+MonitorCard 1.0 MonitorCard.qml
+DisplayPage 1.0 DisplayPage.qml
+BatteryPage 1.0 BatteryPage.qml
+SystemPage 1.0 SystemPage.qml

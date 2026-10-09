@@ -1,0 +1,33 @@
+{
+  "name": "everforest",
+  "label": "Everforest",
+  "accent": "#A7C080",
+  "accentContainer": "#4F5C4E",
+  "onAccent": "#14170F",
+  "island": "#000000",
+  "panel": "#22282D",
+  "subpage": "#2D353B",
+  "card": "#323B41",
+  "chip": "#3E484E",
+  "raised": "#363F45",
+  "track": "#111416",
+  "window": "#0D0F11",
+  "sidebar": "#0B0D0E",
+  "group": "#1A1F23",
+  "field": "#282F34",
+  "control": "#252B30",
+  "switchOff": "#475258",
+  "knob": "#DED4BF",
+  "text": "#D3C6AA",
+  "textSecondary": "#9DA9A0",
+  "textMuted": "#7A8478",
+  "danger": "#E67E80",
+  "preview": [
+    "#E67E80",
+    "#E69875",
+    "#DBBC7F",
+    "#A7C080",
+    "#83C092",
+    "#D699B6"
+  ]
+}

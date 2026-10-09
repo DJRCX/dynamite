@@ -1,0 +1,33 @@
+{
+  "name": "catppuccin-macchiato",
+  "label": "Catppuccin Macchiato",
+  "accent": "#C6A0F6",
+  "accentContainer": "#51496F",
+  "onAccent": "#18131E",
+  "island": "#000000",
+  "panel": "#1B1D2C",
+  "subpage": "#24273A",
+  "card": "#2B2E42",
+  "chip": "#3C3F55",
+  "raised": "#313448",
+  "track": "#0E0F16",
+  "window": "#0A0B10",
+  "sidebar": "#090A0E",
+  "group": "#151722",
+  "field": "#202333",
+  "control": "#1D202F",
+  "switchOff": "#494D64",
+  "knob": "#D7DEF8",
+  "text": "#CAD3F5",
+  "textSecondary": "#A5ADCB",
+  "textMuted": "#6E738D",
+  "danger": "#ED8796",
+  "preview": [
+    "#ED8796",
+    "#F5A97F",
+    "#EED49F",
+    "#A6DA95",
+    "#8AADF4",
+    "#C6A0F6"
+  ]
+}

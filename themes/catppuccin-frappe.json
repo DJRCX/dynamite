@@ -1,0 +1,33 @@
+{
+  "name": "catppuccin-frappe",
+  "label": "Catppuccin Frapp\u00e9",
+  "accent": "#CA9EE6",
+  "accentContainer": "#5B5273",
+  "onAccent": "#18131C",
+  "island": "#000000",
+  "panel": "#242735",
+  "subpage": "#303446",
+  "card": "#363B4D",
+  "chip": "#454A5F",
+  "raised": "#3B4053",
+  "track": "#12141A",
+  "window": "#0E0F14",
+  "sidebar": "#0C0D11",
+  "group": "#1C1E29",
+  "field": "#2B2E3E",
+  "control": "#272A39",
+  "switchOff": "#51576D",
+  "knob": "#D4DCF8",
+  "text": "#C6D0F5",
+  "textSecondary": "#A5ADCE",
+  "textMuted": "#737994",
+  "danger": "#E78284",
+  "preview": [
+    "#E78284",
+    "#EF9F76",
+    "#E5C890",
+    "#A6D189",
+    "#8CAAEE",
+    "#CA9EE6"
+  ]
+}
