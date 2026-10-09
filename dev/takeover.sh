@@ -105,7 +105,7 @@ PLAN
         systemctl --user is-enabled --quiet "$unit" || echo "Warning: $unit is not enabled."
     done
     mkdir -p "$HOME/.config/autostart"
-    for desktop in polkit-gnome-authentication-agent-1.desktop polkit-mate-authentication-agent-1.desktop; do
+    for desktop in polkit-gnome-authentication-agent-1.desktop org.gnome.PolkitGnomeAuthenticationAgent.desktop polkit-mate-authentication-agent-1.desktop; do
         if [[ -f "/etc/xdg/autostart/$desktop" ]]; then
             printf '[Desktop Entry]\nHidden=true\n' > "$HOME/.config/autostart/$desktop"
         fi
@@ -179,7 +179,7 @@ rollback() {
         rm -f "$file.pre-dynamite"
     done
     rm -f "$niri_dir/config.d/75-simple-bar.kdl"
-    for desktop in polkit-gnome-authentication-agent-1.desktop polkit-mate-authentication-agent-1.desktop; do
+    for desktop in polkit-gnome-authentication-agent-1.desktop org.gnome.PolkitGnomeAuthenticationAgent.desktop polkit-mate-authentication-agent-1.desktop; do
         override="$HOME/.config/autostart/$desktop"
         if [[ -f "$override" ]] && grep -qx 'Hidden=true' "$override"; then rm -f "$override"; fi
     done
