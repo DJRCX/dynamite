@@ -97,6 +97,51 @@ ShellRoot {
         }
     }
 
+    function syncBatteryPowerProfile() {
+        let device = UPower.displayDevice
+        if (!device || !device.ready) return
+        if (sysStats.powerProfileManualOverride) return
+
+        let pct = device.percentage
+        if (pct <= 1.0) pct *= 100
+        let onBattery = UPower.onBattery
+        let profile = !onBattery ? "performance" : (pct <= 50 ? "power-saver" : "balanced")
+        let reason = !onBattery ? "Charger connected" : (pct <= 50 ? "Battery is at or below 50%" : "Battery is above 50%")
+        sysStats.requestPowerProfile(profile, reason)
+    }
+
+    Timer {
+        id: powerProfileTimer
+        interval: 60000
+        repeat: true
+        triggeredOnStart: true
+        running: true
+        onTriggered: root.syncBatteryPowerProfile()
+    }
+
+    Timer {
+        id: powerProfileDebounceTimer
+        interval: 500
+        repeat: false
+        onTriggered: root.syncBatteryPowerProfile()
+    }
+
+    Connections {
+        target: UPower
+        function onOnBatteryChanged() {
+            sysStats.powerProfileManualOverride = false
+            powerProfileDebounceTimer.restart()
+        }
+    }
+
+    Connections {
+        target: UPower.displayDevice
+        function onPercentageChanged() {
+            sysStats.powerProfileManualOverride = false
+            powerProfileDebounceTimer.restart()
+        }
+    }
+
     // IPC Handler to open/toggle app launcher from external keybind (Mod+Space)
     IpcHandler {
         target: "launcher"
@@ -269,6 +314,20 @@ ShellRoot {
         root.currentToast = null
         if (toastQueue.length > 0) {
             showNextToast()
+        }
+    }
+
+    Connections {
+        target: root
+        function onIsActionActiveChanged() {
+            if (!root.isActionActive && !root.showingWorkspaces && !root.isToastActive && root.toastQueue.length > 0) {
+                root.showNextToast()
+            }
+        }
+        function onShowingWorkspacesChanged() {
+            if (!root.isActionActive && !root.showingWorkspaces && !root.isToastActive && root.toastQueue.length > 0) {
+                root.showNextToast()
+            }
         }
     }
 
@@ -598,6 +657,76 @@ ShellRoot {
         property string swapUsedStr: "0.0 GB"
         property real swapPercent: 0.0
         property bool caffeineActive: false
+        property string powerProfile: "unknown"
+        property string powerProfileError: ""
+        property bool powerProfileBusy: false
+        property bool powerProfileManualOverride: false
+        property string pendingPowerProfile: ""
+        property string inFlightPowerProfileReason: ""
+
+        function requestPowerProfile(profile, reason, manual) {
+            if (manual) sysStats.powerProfileManualOverride = true
+            sysStats.pendingPowerProfile = profile
+            if (sysStats.powerProfileBusy) return
+            if (sysStats.powerProfile === profile && sysStats.powerProfileError === "") return
+
+            sysStats.inFlightPowerProfileReason = reason
+            sysStats.powerProfileBusy = true
+            sysStats.powerProfileProc.command = ["python3", sysStats.scriptPath, "sync-power-profile", profile]
+            sysStats.powerProfileProc.running = true
+        }
+
+        property Process powerProfileProc: Process {
+            id: powerProfileProc
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    sysStats.powerProfileBusy = false
+                    try {
+                        let result = JSON.parse(text)
+                        if (result.status === "ok") {
+                            sysStats.powerProfileError = ""
+                            sysStats.powerProfile = result.profile
+                            if (result.changed) {
+                                sysStats.notifyPowerProfileChanged(result.profile, sysStats.inFlightPowerProfileReason)
+                            }
+                            if (sysStats.pendingPowerProfile !== result.profile) {
+                                powerProfileDebounceTimer.restart()
+                            }
+                        } else {
+                            sysStats.powerProfileError = result.message || "TLP profile could not be changed"
+                        }
+                    } catch (e) {
+                        sysStats.powerProfileError = "Could not read the TLP profile status"
+                    }
+                }
+            }
+        }
+
+        function notifyPowerProfileChanged(profile, reason) {
+            let names = ({
+                "performance": "Performance",
+                "balanced": "Balanced",
+                "power-saver": "Power-saving"
+            })
+            let name = names[profile] || profile
+            if (root.isDndActive) return
+            root.pushToast({
+                id: `power-profile-${Date.now()}`,
+                appName: "simple-bar",
+                appIcon: "battery",
+                summary: "Power profile changed",
+                body: `${name} · ${reason}`,
+                urgency: NotificationUrgency.Low,
+                expireTimeout: 5000,
+                actions: [],
+                dismiss: function() {}
+            })
+        }
+
+        function resumeAutomaticPowerProfile() {
+            sysStats.powerProfileManualOverride = false
+            powerProfileDebounceTimer.restart()
+        }
 
         property string scriptPath: Qt.resolvedUrl("scripts/control.py").toString().replace(/^file:\/\//, "")
 
@@ -3135,7 +3264,7 @@ ShellRoot {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     width: 560
-                    height: 480
+                    height: 494
                     topLeftRadius: root.barPosition === "bottom" ? 20 : 0
                     topRightRadius: root.barPosition === "bottom" ? 20 : 0
                     bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
@@ -3612,7 +3741,7 @@ ShellRoot {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     width: 560
-                    height: 400
+                    height: 480
                     topLeftRadius: root.barPosition === "bottom" ? 20 : 0
                     topRightRadius: root.barPosition === "bottom" ? 20 : 0
                     bottomLeftRadius: root.barPosition !== "bottom" ? 20 : 0
@@ -3738,6 +3867,107 @@ ShellRoot {
                                         }
                                         font.pixelSize: 10
                                         color: theme.textMuted
+                                    }
+                                }
+                            }
+                        }
+
+                        // Active TLP profile, selected automatically from AC state and charge level.
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 90
+                            radius: 12
+                            color: theme.surface
+                            border.color: theme.border
+                            border.width: 1
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 7
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "Power profile"
+                                        font.pixelSize: 11
+                                        font.weight: Font.DemiBold
+                                        color: theme.text
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: sysStats.powerProfileError !== "" ? "TLP unavailable" : (sysStats.powerProfile === "unknown" ? "Checking…" : (sysStats.powerProfileManualOverride ? "MANUAL · USE AUTO" : "AUTOMATIC"))
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                        color: sysStats.powerProfileError !== "" ? theme.warning : (sysStats.powerProfileManualOverride ? theme.accent : theme.textMuted)
+                                        TapHandler {
+                                            enabled: sysStats.powerProfileManualOverride
+                                            onTapped: sysStats.resumeAutomaticPowerProfile()
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: sysStats.powerProfileError !== ""
+                                    text: sysStats.powerProfileError
+                                    font.pixelSize: 8
+                                    color: theme.warning
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                    ToolTip.visible: profileErrorMouse.containsMouse
+                                    ToolTip.text: sysStats.powerProfileError
+                                    MouseArea {
+                                        id: profileErrorMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        acceptedButtons: Qt.NoButton
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Repeater {
+                                        model: [
+                                            { id: "power-saver", label: "Power-saving", hint: "≤50% battery", icon: "󰂃" },
+                                            { id: "balanced", label: "Balanced", hint: ">50% battery", icon: "󰾅" },
+                                            { id: "performance", label: "Performance", hint: "On charger", icon: "󰓅" }
+                                        ]
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            height: 38
+                                            radius: 8
+                                            readonly property bool selected: sysStats.powerProfileError === "" && sysStats.powerProfile === modelData.id
+                                            color: selected ? theme.accentSurface : "#141414"
+                                            border.color: selected ? theme.accent : theme.border
+                                            border.width: 1
+
+                                            TapHandler {
+                                                onTapped: sysStats.requestPowerProfile(modelData.id, "Selected manually", true)
+                                            }
+
+                                            ColumnLayout {
+                                                anchors.centerIn: parent
+                                                spacing: 1
+                                                Text {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    text: `${modelData.icon}  ${modelData.label}`
+                                                    font.pixelSize: 9
+                                                    font.weight: parent.parent.selected ? Font.DemiBold : Font.Normal
+                                                    color: parent.parent.selected ? theme.text : theme.textMuted
+                                                }
+                                                Text {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    text: modelData.hint
+                                                    font.pixelSize: 8
+                                                    color: parent.parent.selected ? theme.accent : theme.textMuted
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -59,6 +59,8 @@ check_dep "brightnessctl" "Backlight controller"
 check_dep "cliphist" "Clipboard history manager"
 check_dep "wl-copy" "Wayland clipboard utilities (wl-clipboard)"
 check_dep "wtype" "Wayland virtual keystroke simulation"
+check_dep "tlpctl" "TLP profile switching (tlp-pd)"
+check_dep "notify-send" "Profile-change notifications (libnotify)"
 
 check_opt_dep "awww" "Wayland wallpaper daemon with animated transitions"
 check_opt_dep "blueman-manager" "Graphical Bluetooth manager"
@@ -70,7 +72,7 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "Install them according to your Linux distribution:\n"
     if [ -f /etc/arch-release ]; then
         echo -e "  ${BOLD}Arch Linux:${NC}"
-        echo -e "    sudo pacman -S python networkmanager bluez-utils wireplumber brightnessctl cliphist wl-clipboard wtype"
+        echo -e "    sudo pacman -S python networkmanager bluez-utils wireplumber brightnessctl cliphist wl-clipboard wtype tlp tlp-pd libnotify upower"
         echo -e "    yay -S quickshell-git blueman btop"
     elif [ -f /etc/fedora-release ]; then
         echo -e "  ${BOLD}Fedora:${NC}"

@@ -31,6 +31,7 @@
 - **🧭 Timed Bar Workspaces**: The four bar workspaces can revert to Overview after a configurable timeout.
 - **📋 Visual Clipboard History Manager**: Dual-format history for copied text and image thumbnails via `cliphist`.
 - **🫥 Terminal Opacity**: The generated Kitty and Foot themes use the configurable `terminal_opacity` value from `config.json`.
+- **🔋 TLP Power Profiles**: Automatically uses Performance while plugged in, Balanced on battery above 50%, and Power-saving at or below 50%. Profile changes appear as in-bar pop-up toasts, and the battery panel lets you choose a profile manually or return to automatic mode.
 - **📐 Window Exclusive Zone**: Reserves 46px at the configured edge (top or bottom) so tiled and maximized windows never overlap the bar.
 - **🖱️ Outside-Click Dismissal**: Clicking outside any open panel or on any window instantly dismisses the panel back to the compact pill.
 
@@ -48,6 +49,9 @@ The theme relies on standard Linux utilities and Quickshell:
 | **brightnessctl** | Display backlight control |
 | **networkmanager** (`nmcli`) | Wi-Fi scanning, connection, and power control |
 | **bluez** (`bluetoothctl`) | Bluetooth device pairing and connection management |
+| **upower** | Battery level and charger-state detection |
+| **tlp** + **tlp-pd** (`tlpctl`) | Performance, balanced, and power-saver profiles |
+| **libnotify** (`notify-send`) | Desktop notifications used by the caffeine control |
 | **awww** | High-performance Wayland wallpaper daemon with animated transitions |
 | **python-pillow** | Image processing and dynamic color extraction |
 | **kitty** / **foot** *(optional)* | Terminal emulators with automatic dynamic theme reloading |
@@ -56,6 +60,18 @@ The theme relies on standard Linux utilities and Quickshell:
 | **btop** *(optional)* | Terminal hardware resource monitor |
 
 On Arch Linux, install the required packages with your preferred repositories/AUR helper. The installer prints an Arch package hint when it finds missing dependencies; Quickshell and `awww` may require AUR packages depending on your setup.
+
+### TLP Power Profile Setup
+
+Install `tlp` and `tlp-pd`, then install this project's TLP drop-in and enable the system services:
+
+```bash
+sudo install -Dm644 tlp/simple-bar.conf /etc/tlp.d/90-simple-bar.conf
+sudo systemctl enable --now tlp.service tlp-pd.service
+sudo tlp start
+```
+
+The bar monitors UPower for charger and battery changes, then selects the matching profile through `tlpctl`. Selecting a profile in the battery panel switches to manual mode until charger/battery state changes; choose **USE AUTO** to resume automatic selection immediately. `TLP_AUTO_SWITCH=1` keeps charger insertion/removal switching active even after the bar selected Power-saving at low charge. Avoid running `power-profiles-daemon` alongside TLP; both manage the same system power-profile interface.
 
 ---
 

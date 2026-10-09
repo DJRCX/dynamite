@@ -900,6 +900,67 @@ def clear_clipboard():
     except Exception:
         return False
 
+TLP_PROFILE_COMMANDS = {
+    "performance": "performance",
+    "balanced": "balanced",
+    "power-saver": "power-saver",
+}
+
+def sync_tlp_profile(profile):
+    """Apply a requested TLP profile through tlp-pd's unprivileged client."""
+    if profile not in TLP_PROFILE_COMMANDS:
+        return {"status": "error", "message": "Unknown power profile"}
+    if not shutil.which("tlpctl"):
+        return {"status": "error", "message": "tlpctl is missing; install TLP and tlp-pd"}
+
+    try:
+        current_result = subprocess.run(
+            ["tlpctl", "get"], capture_output=True, text=True, timeout=5
+        )
+        current = current_result.stdout.strip().lower()
+        if current_result.returncode != 0 or current not in TLP_PROFILE_COMMANDS:
+            stderr_lines = current_result.stderr.strip().splitlines()
+            detail = stderr_lines[-1] if stderr_lines else "TLP Profiles Daemon is unavailable"
+            return {"status": "error", "message": detail, "profile": current or "unknown"}
+
+        if current == profile:
+            return {"status": "ok", "profile": current, "changed": False}
+
+        result = subprocess.run(
+            ["tlpctl", TLP_PROFILE_COMMANDS[profile]],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode != 0:
+            error_lines = (result.stderr.strip() or result.stdout.strip()).splitlines()
+            detail = error_lines[-1] if error_lines else "TLP rejected the profile change"
+            return {"status": "error", "message": detail, "profile": current}
+
+        # tlpctl can acknowledge the D-Bus request before tlp-pd publishes its
+        # new active profile. Poll briefly instead of reporting a false failure
+        # from an immediate read of the previous profile.
+        verify = None
+        applied = current
+        for attempt in range(10):
+            verify = subprocess.run(
+                ["tlpctl", "get"], capture_output=True, text=True, timeout=5
+            )
+            applied = verify.stdout.strip().lower()
+            if verify.returncode == 0 and applied == profile:
+                break
+            if attempt < 9:
+                time.sleep(0.25)
+
+        if verify.returncode != 0 or applied != profile:
+            error_lines = verify.stderr.strip().splitlines()
+            detail = error_lines[-1] if error_lines else f"TLP still reports {applied or 'an unknown profile'}"
+            return {"status": "error", "message": detail, "profile": applied or current}
+
+        return {"status": "ok", "profile": applied, "changed": True}
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"status": "error", "message": str(e), "profile": "unknown"}
+
 def get_system_info():
     uptime_str = "Unknown"
     try:
@@ -1060,7 +1121,10 @@ def main():
 
     cmd = sys.argv[1]
 
-    if cmd == "wm-stream":
+    if cmd == "sync-power-profile" and len(sys.argv) > 2:
+        print(json.dumps(sync_tlp_profile(sys.argv[2])))
+
+    elif cmd == "wm-stream":
         stream_wm()
 
     elif cmd == "focus-workspace" and len(sys.argv) > 2:
