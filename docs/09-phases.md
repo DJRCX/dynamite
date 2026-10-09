@@ -6,7 +6,7 @@ Eighteen phases, one Codex session each:
 - **13–17: extras.** simple-bar's features rebuilt and improved (`10-extras.md`). No Figma frames; built from the same tokens and components.
 - **18: takeover.** The legacy shell is deleted and Dynamite becomes the whole repo. Codex prepares it; you run it.
 
-Every phase ends with the shell running cleanly in the nested session (`dynamite/dev/run-nested.sh`, no `ERROR`/`WARN` lines from Dynamite's files in `/tmp/dynamite-dev.log`) and a short report of anything that doesn't match.
+Every phase ends with the shell running cleanly in the nested session (`dev/run-nested.sh`, no `ERROR`/`WARN` lines from Dynamite's files in `/tmp/dynamite-dev.log`) and a short report of anything that doesn't match.
 
 Screenshot references are in `/home/djrcx/Projects/figma/Screenshots of the design/`; Figma frame numbers refer to the **Screens** page.
 
@@ -15,10 +15,10 @@ Screenshot references are in `/home/djrcx/Projects/figma/Screenshots of the desi
 Every mode must be openable from IPC so it can be screenshotted without a mouse: `island open <mode>`, `cc page <name>`, `notifs debugInject …`, plus a dev-only `island preview polkit`.
 
 ```bash
-dynamite/dev/run-nested.sh start                # background; 1920x1080; prints WARN/ERROR lines
-dynamite/dev/ipc.sh island open clock           # IPC into the nested instance
+dev/run-nested.sh start                # background; 1920x1080; prints WARN/ERROR lines
+dev/ipc.sh island open clock           # IPC into the nested instance
 sleep 0.6                                       # let the springs settle
-dynamite/dev/shot.sh clock
+dev/shot.sh clock
 magick "/tmp/dynamite-clock.png" -crop 380x160+770+0 /tmp/a.png
 magick "/home/djrcx/Projects/figma/Screenshots of the design/2026-10-08__2355-08.png" -crop 380x160+770+0 /tmp/b.png
 magick compare -metric RMSE /tmp/a.png /tmp/b.png /tmp/diff.png; echo
@@ -26,7 +26,7 @@ magick compare -metric RMSE /tmp/a.png /tmp/b.png /tmp/diff.png; echo
 
 The wallpaper differs, so judge the diff image by eye: the island's outline, text positions and sizes should line up. Use the crop box listed for each screen (x, y, w, h on a 1920×1080 output). `run-nested.sh` already makes the nested output 1920×1080; check with `magick identify` if in doubt.
 
-To check a spring's motion, grab a burst of region shots right after triggering it (`for i in $(seq 8); do dynamite/dev/shot.sh f$i "0,0 1920x80"; done`) and measure an edge per frame. With the `island` spring, the overshoot is about 6% of the travel.
+To check a spring's motion, grab a burst of region shots right after triggering it (`for i in $(seq 8); do dev/shot.sh f$i "0,0 1920x80"; done`) and measure an edge per frame. With the `island` spring, the overshoot is about 6% of the travel.
 
 | # | Screen | Reference file | Crop box |
 |---|---|---|---|
@@ -216,7 +216,7 @@ Why it's done this way: `~/.config/quickshell/simple-bar` is a symlink to this r
    - Create branch `takeover` in a temporary `git worktree`. In that worktree:
      - `git rm -r` the legacy files: `shell.qml`, `scripts/`, `systemd/`, `tlp/`, `install.sh`, `README.md`, `CHANGELOG.md`, `GEMINI.md`, `AGENTS.md`, `config.json`, `.gitignore`.
      - `git mv` every entry of `dynamite/` (including dotfiles) to the root, then remove the empty `dynamite/`. Move `takeover.sh` to `dev/takeover.sh` (so `rollback` stays available).
-     - `git mv docs/dynamite/* docs/` and rewrite paths in `docs/*.md`, `README.md`, `AGENTS.md`: `docs/dynamite/` → `docs/`, `dynamite/dev/` → `dev/`.
+     - `git mv docs/* docs/` and rewrite paths in `docs/*.md`, `README.md`, `AGENTS.md`: `docs/` → `docs/`, `dev/` → `dev/`.
      - Check: no QML/JS/shell file references `dynamite/` as a path (`rg -n "dynamite/" --glob '*.{qml,js,sh}'` finds nothing except state dirs like `~/.config/dynamite`, `~/.local/state/dynamite`, `~/.cache/dynamite`).
      - Commit: "Replace simple-bar with Dynamite".
    - Remove the worktree; print `git show --stat takeover` and the next command.

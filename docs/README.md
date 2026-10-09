@@ -14,7 +14,7 @@ This folder is the complete spec. It is written so that a coding agent (Codex) c
 | Original screenshots (1920×1080) | `/home/djrcx/Projects/figma/Screenshots of the design/` — the file for each screen is listed in `09-phases.md` |
 | Author's walkthrough (behaviour + intent) | `/home/djrcx/Projects/figma/transcript-or-walkthrough-of-the-design.txt` |
 | Legacy features to rebuild | `10-extras.md` (and the legacy code itself: `../../shell.qml`, `../../scripts/`, read-only) |
-| This spec | `docs/dynamite/*.md` |
+| This spec | `docs/*.md` |
 
 When the spec and a screenshot disagree, the screenshot wins for looks and the spec wins for behaviour. Numbers in this spec were measured from the screenshots at 1× scale on a 1920×1080 output.
 
@@ -44,10 +44,10 @@ When the spec and a screenshot disagree, the screenshot wins for looks and the s
 Run one phase per Codex session. A good prompt:
 
 ```text
-Read AGENTS.md and docs/dynamite/README.md, then implement Phase 3 from
-docs/dynamite/09-phases.md. Follow the referenced spec sections exactly.
+Read AGENTS.md and docs/README.md, then implement Phase 3 from
+docs/09-phases.md. Follow the referenced spec sections exactly.
 When done, run the phase's acceptance checks, take the screenshots it asks
-for with dynamite/dev/shot.sh, and list anything you could not match.
+for with dev/shot.sh, and list anything you could not match.
 ```
 
 Phases build on each other; don't skip ahead. After each phase, open the nested session yourself, hover and click around, and compare against the Figma prototype before moving on.

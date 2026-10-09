@@ -1,14 +1,11 @@
 [Unit]
-Description=Quickshell Simple Bar
-PartOf=graphical-session.target
-After=graphical-session.target
+Description=Dynamite Quickshell
 Wants=awww-daemon.service
-After=awww-daemon.service
+After=graphical-session.target awww-daemon.service
 
 [Service]
-Type=simple
 ExecStart=/usr/bin/qs -p %h/.config/quickshell/simple-bar
-Restart=always
+Restart=on-failure
 RestartSec=2
 
 [Install]
