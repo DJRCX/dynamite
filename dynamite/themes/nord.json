@@ -1,0 +1,33 @@
+{
+  "name": "nord",
+  "label": "Nord",
+  "accent": "#88C0D0",
+  "accentContainer": "#475B68",
+  "onAccent": "#101719",
+  "island": "#000000",
+  "panel": "#232730",
+  "subpage": "#2E3440",
+  "card": "#343B48",
+  "chip": "#414A5B",
+  "raised": "#38404E",
+  "track": "#111418",
+  "window": "#0D0F12",
+  "sidebar": "#0B0D10",
+  "group": "#1B1E25",
+  "field": "#292E39",
+  "control": "#252A34",
+  "switchOff": "#4C566A",
+  "knob": "#F1F3F7",
+  "text": "#ECEFF4",
+  "textSecondary": "#D8DEE9",
+  "textMuted": "#616E88",
+  "danger": "#BF616A",
+  "preview": [
+    "#BF616A",
+    "#D08770",
+    "#EBCB8B",
+    "#A3BE8C",
+    "#88C0D0",
+    "#B48EAD"
+  ]
+}

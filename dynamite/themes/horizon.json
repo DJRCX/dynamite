@@ -1,0 +1,33 @@
+{
+  "name": "horizon",
+  "label": "Horizon",
+  "accent": "#49E3AF",
+  "accentContainer": "#205543",
+  "onAccent": "#0B1A14",
+  "island": "#000000",
+  "panel": "#181614",
+  "subpage": "#1F1D1B",
+  "card": "#262220",
+  "chip": "#322E2B",
+  "raised": "#2A2623",
+  "track": "#0D0B0A",
+  "window": "#0A0806",
+  "sidebar": "#070707",
+  "group": "#141110",
+  "field": "#1C1916",
+  "control": "#1A1816",
+  "switchOff": "#3B3734",
+  "knob": "#F2EFEA",
+  "text": "#EDE7DD",
+  "textSecondary": "#A39B91",
+  "textMuted": "#6B655E",
+  "danger": "#E5534B",
+  "preview": [
+    "#E95678",
+    "#29D398",
+    "#FAB795",
+    "#26BBD9",
+    "#EE64AC",
+    "#59E1E3"
+  ]
+}

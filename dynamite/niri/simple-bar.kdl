@@ -1,0 +1,20 @@
+// Dynamite IPC bindings. Review existing chords before including this file.
+binds {
+    Mod+Alt+L allow-when-locked=true hotkey-overlay-title="Lock" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "lock" "lock"; }
+    Mod+Shift+Ctrl+Q hotkey-overlay-title="Reload Shell" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "shell" "reload"; }
+    Mod+N hotkey-overlay-title="Control Center" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "cc"; }
+    Mod+M hotkey-overlay-title="Media" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "media"; }
+    Mod+Shift+T hotkey-overlay-title="Themes" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "themes"; }
+    Mod+Shift+W hotkey-overlay-title="Wallpapers" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "wallpapers"; }
+    Mod+Shift+Space hotkey-overlay-title="Window Menu" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "window"; }
+    Mod+G hotkey-overlay-title="Game Mode" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "gamemode" "toggle"; }
+    Mod+Comma hotkey-overlay-title="Settings" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "settings" "open" "Bar & Island"; }
+    XF86MonBrightnessUp allow-when-locked=true { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "brightness" "up"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "brightness" "down"; }
+}
+window-rule {
+    match title="^Dynamite Settings$"
+    open-floating true
+    default-column-width { fixed 1320; }
+    default-window-height { fixed 970; }
+}

@@ -94,6 +94,10 @@ Use `ClippingRectangle` from `Quickshell.Widgets`; a plain `Rectangle { clip: tr
 
 Overshoot means `width`/`height` briefly exceed the target. Children laid out against the island must tolerate a few extra pixels (anchor content to the top-left and give it a fixed size; don't stretch it to the island).
 
+**Overshoot only outward.** When an island *shrinks*, its width, height and radius must not dip below the target. The `island` spring overshoots about 6% of the distance travelled, so a 514 px CC collapsing to a 33 px circle would otherwise flash a ~5 px dot before bouncing back. The real `SpringRect` springs internal `sw`/`sh`/`sr` values and renders `Math.max(sprung, target)` while the last target change was a decrease (`clampShrink`, on by default). Growing keeps the full overshoot.
+
+**Collapsed content never scales with a panel.** The album/status circle content stays 33×33. It fades back in with `opacity` + `Motion.panel` when its panel closes, and sits at the edge the island collapses toward: top-left for status, top-right for album. Scale it down only when the island is smaller than a circle (hiding): `scale: Math.min(1, Math.min(island.width, island.height) / Metrics.circle)`. Never use `scale: island.width / 33`, because closing the CC would draw a 12× ring and a pixelated glyph.
+
 ### 2. Content crossfades inside the morph
 
 When the island changes mode, its old content and new content are both alive for a moment:

@@ -1,0 +1,33 @@
+{
+  "name": "gruvbox-material",
+  "label": "Gruvbox Material",
+  "accent": "#A9B665",
+  "accentContainer": "#4C5039",
+  "onAccent": "#14160C",
+  "island": "#000000",
+  "panel": "#1E1E1E",
+  "subpage": "#282828",
+  "card": "#2E2D2C",
+  "chip": "#3B3735",
+  "raised": "#32302F",
+  "track": "#0F0F0F",
+  "window": "#0B0B0B",
+  "sidebar": "#0A0A0A",
+  "group": "#171717",
+  "field": "#232323",
+  "control": "#202020",
+  "switchOff": "#45403D",
+  "knob": "#DFCEB2",
+  "text": "#D4BE98",
+  "textSecondary": "#A89984",
+  "textMuted": "#7C6F64",
+  "danger": "#EA6962",
+  "preview": [
+    "#EA6962",
+    "#A9B665",
+    "#D8A657",
+    "#89B482",
+    "#D3869B",
+    "#7DAEA3"
+  ]
+}

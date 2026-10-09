@@ -1,0 +1,33 @@
+{
+  "name": "monokai",
+  "label": "Monokai",
+  "accent": "#A6E22E",
+  "accentContainer": "#4B5C25",
+  "onAccent": "#141B06",
+  "island": "#000000",
+  "panel": "#1D1E1A",
+  "subpage": "#272822",
+  "card": "#2E2E27",
+  "chip": "#3D3C34",
+  "raised": "#33332C",
+  "track": "#0F0F0D",
+  "window": "#0B0B0A",
+  "sidebar": "#0A0A08",
+  "group": "#171714",
+  "field": "#23231E",
+  "control": "#20201C",
+  "switchOff": "#49483E",
+  "knob": "#FAFAF5",
+  "text": "#F8F8F2",
+  "textSecondary": "#CFCFC2",
+  "textMuted": "#75715E",
+  "danger": "#F92672",
+  "preview": [
+    "#F92672",
+    "#FD971F",
+    "#E6DB74",
+    "#A6E22E",
+    "#66D9EF",
+    "#AE81FF"
+  ]
+}

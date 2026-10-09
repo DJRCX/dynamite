@@ -232,22 +232,24 @@ binds {
 }
 ```
 
-`dev/run-nested.sh` — substitutes the absolute path, starts nested Niri with Dynamite as its startup command, and tees the log:
+The dev scripts below exist and were tested on this machine; use them as they are.
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CFG="$(mktemp --suffix=.kdl)"
-sed "s#DYNAMITE_DIR#$DIR#g" "$DIR/dev/niri-dev.kdl" > "$CFG"
-exec niri -c "$CFG" -- qs -p "$DIR" 2>&1 | tee /tmp/dynamite-dev.log
-```
+| Script | What it does |
+|---|---|
+| `dev/run-nested.sh [start\|stop\|restart\|status] [--windowed]` | Starts nested Niri **in the background** and returns. Moves its window to the 1920×1080 host output (eDP-1, or `$DYNAMITE_OUTPUT`) and fullscreens it, so the nested output is exactly 1920×1080. Writes the nested display name to `/tmp/dynamite-display`. Prints the Quickshell log's WARN/ERROR lines. |
+| `dev/ipc.sh <target> <fn> [args]` / `dev/ipc.sh show` | Calls Dynamite's IPC in the nested session. |
+| `dev/shot.sh <name> ["x,y wxh"]` | Screenshot (optionally a region) of the nested output → `/tmp/dynamite-<name>.png`. |
+| Logs | Quickshell: `/tmp/dynamite-dev.log`. Niri: `/tmp/dynamite-niri.log`. |
 
-Resize the nested window to 1920×1080 so measurements match the screenshots (or set the winit output mode in the dev config if your Niri build supports it).
+Three facts behind that design (don't "simplify" them away):
 
-`dev/shot.sh <name>` — finds the nested compositor's socket (the newest `wayland-*` in `$XDG_RUNTIME_DIR` that isn't `$WAYLAND_DISPLAY`) and runs `WAYLAND_DISPLAY=<that> grim /tmp/dynamite-<name>.png`.
+1. **Niri discards the stdout/stderr of the command it starts**, so `niri -- qs … | tee log` never shows Quickshell's errors. The script starts `qs` through `sh -c 'exec qs -p DIR >>LOG 2>&1'`.
+2. **`qs ipc` only sees instances on the current display.** From the host, `qs ipc -p <dir> …` reports "no running instances" for the nested shell; it needs `WAYLAND_DISPLAY=<nested>`, which `dev/ipc.sh` sets.
+3. The nested window is tiled at an arbitrary size by default (952×1024 here), which breaks every crop box, hence the fullscreen.
 
-Quickshell hot-reloads on save; you rarely need to restart the nested session.
+**Sandbox:** nested Niri must connect to the live compositor's socket in `$XDG_RUNTIME_DIR`. Inside a restricted sandbox that fails with `NoCompositor` (seen with Codex's default sandbox). The agent needs full access (no sandbox) to run the dev loop.
+
+Quickshell hot-reloads on save; you rarely need to restart the nested session. Stop it when you're done (`dev/run-nested.sh stop`).
 
 ### Single-owner D-Bus services (important)
 

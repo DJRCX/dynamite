@@ -15,15 +15,18 @@ Screenshot references are in `/home/djrcx/Projects/figma/Screenshots of the desi
 Every mode must be openable from IPC so it can be screenshotted without a mouse: `island open <mode>`, `cc page <name>`, `notifs debugInject …`, plus a dev-only `island preview polkit`.
 
 ```bash
-qs ipc -p "$PWD/dynamite" call island open clock   # talks to the nested instance (addressed by path)
-sleep 0.6                                      # let the springs settle
+dynamite/dev/run-nested.sh start                # background; 1920x1080; prints WARN/ERROR lines
+dynamite/dev/ipc.sh island open clock           # IPC into the nested instance
+sleep 0.6                                       # let the springs settle
 dynamite/dev/shot.sh clock
 magick "/tmp/dynamite-clock.png" -crop 380x160+770+0 /tmp/a.png
 magick "/home/djrcx/Projects/figma/Screenshots of the design/2026-10-08__2355-08.png" -crop 380x160+770+0 /tmp/b.png
 magick compare -metric RMSE /tmp/a.png /tmp/b.png /tmp/diff.png; echo
 ```
 
-The wallpaper differs, so judge the diff image by eye: the island's outline, text positions and sizes should line up. Use the crop box listed for each screen (x, y, w, h on a 1920×1080 output). Set the nested window to 1920×1080 first.
+The wallpaper differs, so judge the diff image by eye: the island's outline, text positions and sizes should line up. Use the crop box listed for each screen (x, y, w, h on a 1920×1080 output). `run-nested.sh` already makes the nested output 1920×1080; check with `magick identify` if in doubt.
+
+To check a spring's motion, grab a burst of region shots right after triggering it (`for i in $(seq 8); do dynamite/dev/shot.sh f$i "0,0 1920x80"; done`) and measure an edge per frame. With the `island` spring, the overshoot is about 6% of the travel.
 
 | # | Screen | Reference file | Crop box |
 |---|---|---|---|
@@ -60,7 +63,7 @@ Read: `01-architecture.md`, `02-design-tokens.md`, `03-motion.md`.
 
 Build:
 - The `dynamite/` tree (empty placeholders where needed), `shell.qml` with a single test `PanelWindow`.
-- `dev/niri-dev.kdl`, `dev/run-nested.sh`, `dev/shot.sh` (executable).
+- `dev/niri-dev.kdl`; `dev/run-nested.sh`, `dev/ipc.sh`, `dev/shot.sh` are already provided and tested (`01-architecture.md` → Development loop); don't rewrite them.
 - `theme/Theme.qml` loading `themes/horizon-mint.json`; `theme/Metrics.qml`; `theme/Motion.qml`; `components/Spring.qml`; `components/SpringRect.qml`; `components/Icon.qml`.
 - `config/Config.qml` with every key and default from `02-design-tokens.md`, saving to `~/.config/dynamite/settings.json`.
 - `dev/spring-check.qml` (already provided) must run and print the three fits.
@@ -68,7 +71,7 @@ Build:
 Accept:
 - `run-nested.sh` opens a nested Niri with Dynamite running and a clean log.
 - A test `SpringRect` toggled by `island open test` visibly overshoots slightly and settles in about 0.3 s.
-- Editing `~/.config/dynamite/settings.json` by hand updates the running shell, and changing a value from QML writes the file.
+- Editing `~/.config/dynamite/settings.json` by hand updates the running shell, and changing a value from QML writes the file. To make this observable, bind the test rect's collapsed width to `Config.island.collapsedWidth` and add a dev-only IPC `dev.setConfig(path: string, value: string)` (e.g. `island.collapsedWidth 140`): editing the file must resize the rect (springing), and the IPC must update the file.
 
 ## Phase 2 — Island window, collapsed state, geometry engine
 

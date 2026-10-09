@@ -1,0 +1,10 @@
+[Unit]
+Description=awww wallpaper daemon
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/awww-daemon
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

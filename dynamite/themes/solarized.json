@@ -1,0 +1,33 @@
+{
+  "name": "solarized",
+  "label": "Solarized",
+  "accent": "#268BD2",
+  "accentContainer": "#0B4662",
+  "onAccent": "#051119",
+  "island": "#000000",
+  "panel": "#002029",
+  "subpage": "#002B36",
+  "card": "#05313C",
+  "chip": "#123F4A",
+  "raised": "#0A3641",
+  "track": "#001014",
+  "window": "#000C0F",
+  "sidebar": "#000B0D",
+  "group": "#001920",
+  "field": "#002630",
+  "control": "#00232C",
+  "switchOff": "#1C4A55",
+  "knob": "#F2EEE0",
+  "text": "#EEE8D5",
+  "textSecondary": "#93A1A1",
+  "textMuted": "#657B83",
+  "danger": "#DC322F",
+  "preview": [
+    "#DC322F",
+    "#CB4B16",
+    "#B58900",
+    "#859900",
+    "#2AA198",
+    "#268BD2"
+  ]
+}

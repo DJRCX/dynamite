@@ -1,0 +1,33 @@
+{
+  "name": "tokyo-night",
+  "label": "Tokyo Night",
+  "accent": "#7AA2F7",
+  "accentContainer": "#354161",
+  "onAccent": "#0F131E",
+  "island": "#000000",
+  "panel": "#14141D",
+  "subpage": "#1A1B26",
+  "card": "#1F212F",
+  "chip": "#2B2F44",
+  "raised": "#232636",
+  "track": "#0A0A0E",
+  "window": "#07080B",
+  "sidebar": "#060709",
+  "group": "#0F1016",
+  "field": "#171822",
+  "control": "#15161F",
+  "switchOff": "#343A55",
+  "knob": "#D0D7F8",
+  "text": "#C0CAF5",
+  "textSecondary": "#A9B1D6",
+  "textMuted": "#565F89",
+  "danger": "#F7768E",
+  "preview": [
+    "#F7768E",
+    "#FF9E64",
+    "#E0AF68",
+    "#9ECE6A",
+    "#7DCFFF",
+    "#BB9AF7"
+  ]
+}

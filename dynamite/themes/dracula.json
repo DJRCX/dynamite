@@ -1,0 +1,33 @@
+{
+  "name": "dracula",
+  "label": "Dracula",
+  "accent": "#BD93F9",
+  "accentContainer": "#52476D",
+  "onAccent": "#17121E",
+  "island": "#000000",
+  "panel": "#1E2029",
+  "subpage": "#282A36",
+  "card": "#2D303D",
+  "chip": "#3A3D4D",
+  "raised": "#323442",
+  "track": "#0F1014",
+  "window": "#0B0C0F",
+  "sidebar": "#0A0A0D",
+  "group": "#171920",
+  "field": "#232530",
+  "control": "#20222C",
+  "switchOff": "#44475A",
+  "knob": "#FAFAF5",
+  "text": "#F8F8F2",
+  "textSecondary": "#BFBFBA",
+  "textMuted": "#6272A4",
+  "danger": "#FF5555",
+  "preview": [
+    "#FF5555",
+    "#FFB86C",
+    "#F1FA8C",
+    "#50FA7B",
+    "#8BE9FD",
+    "#BD93F9"
+  ]
+}
