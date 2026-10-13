@@ -18,6 +18,7 @@ hotkey-overlay {
 binds {
     Mod+Return { spawn "alacritty"; }
     Mod+Space { spawn "qs" "ipc" "-p" "DYNAMITE_DIR" "call" "island" "toggle" "launcher"; }
+    Mod+Comma { spawn "qs" "ipc" "-p" "DYNAMITE_DIR" "call" "settings" "open" "Bar & Island"; }
     Mod+Escape { spawn "qs" "ipc" "-p" "DYNAMITE_DIR" "call" "island" "toggle" "power"; }
     Mod+Q { close-window; }
 }

@@ -87,7 +87,7 @@ Startup (enable/disable the systemd unit, via `systemctl --user enable/disable s
 
 Same page anatomy and row types. Add each to the sidebar in its phase, after "System" in this order:
 
-- **Wallpaper** (13–14): wallpaper folder (folder picker), transition (dropdown incl. Random), transition length (0.3–3 s), slideshow (Off/5/15/30/60 min), wallpaper theme mode (Pitch black / Tinted), group "Terminals": Kitty (toggle), Foot (toggle), opacity (0.5–1.0), background (Black / Theme). Group "Wallhaven": API key (masked field), content (SFW / SFW + Sketchy), fit my screens (toggle).
+- **Wallpaper** (13–14): transition length, slideshow interval, and Wallhaven controls. Theme colors come from Omarchy `colors.toml`; wallpapers never generate a palette.
 - **Clipboard** (15): auto-paste (toggle), show images (toggle), items shown (20–500), Clear history (button, confirm), Clear pins (button, confirm).
 - **Power & Battery** (16): automatic profiles (toggle), power saver at (20–80%), group "Idle": lock after (Never/1/2/5/10/15/30 min), screen off after (same list), group "Caffeine": also block suspend (toggle), keep awake while media plays (toggle), keep awake in game mode (toggle).
 - **Weather** (17): location (search field with result list), units (°C / °F), show in calendar / hover clock / lock screen (toggles).

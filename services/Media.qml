@@ -14,7 +14,23 @@ Singleton {
     readonly property var activePlayer: {
         if (pinned && players.includes(pinned)) return pinned
         const playing = players.filter(p => p.isPlaying)
-        if (playing.length) return playing[playing.length - 1]
+        if (playing.length) {
+            let bestPlaying = playing[0]
+            let bestScore = -1
+            for (const player of playing) {
+                const score = (player.trackTitle ? 1 : 0)
+                    + (player.trackArtist ? 3 : 0)
+                    + (player.trackAlbum ? 2 : 0)
+                    + (player.trackArtUrl ? 1 : 0)
+                const recency = lastActive[player.dbusName] ?? 0
+                const bestRecency = lastActive[bestPlaying.dbusName] ?? 0
+                if (score > bestScore || (score === bestScore && recency > bestRecency)) {
+                    bestPlaying = player
+                    bestScore = score
+                }
+            }
+            return bestPlaying
+        }
         let best = null
         for (const p of players)
             if (!best || (lastActive[p.dbusName] ?? 0) > (lastActive[best.dbusName] ?? 0)) best = p

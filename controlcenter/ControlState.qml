@@ -63,7 +63,7 @@ QtObject {
         }
     }
     // Sub-page opened by clicking the body of a wide tile ("" = the body toggles too).
-    readonly property string page: cid === "wifi" ? "wifi" : cid === "bluetooth" ? "bluetooth" : cid === "power" ? "battery" : cid === "system" ? "system" : ""
+    readonly property string page: cid === "wifi" ? "wifi" : cid === "bluetooth" ? "bluetooth" : cid === "nightlight" ? "nightlight" : cid === "power" ? "battery" : cid === "system" ? "system" : ""
 
     function toggle(): void {
         switch (cid) {

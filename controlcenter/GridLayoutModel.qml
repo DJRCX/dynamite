@@ -21,7 +21,8 @@ Singleton {
         { id: "nightlight", kind: "toggle", x: 6, y: 1, w: 1, h: 1 },
         { id: "sound", kind: "slider", x: 0, y: 2, w: 7, h: 1 },
         { id: "display", kind: "slider", x: 0, y: 3, w: 7, h: 1 },
-        { id: "notifications", kind: "notifications", x: 0, y: 4, w: 7, h: 3 }
+        { id: "notifications", kind: "notifications", x: 0, y: 4, w: 7, h: 3 },
+        { id: "tray", kind: "tray", x: 0, y: 7, w: 7, h: 1 }
     ]
 
     // Which kinds and sizes each control supports: [kind, minW, maxW, minH, maxH].
@@ -38,6 +39,7 @@ Singleton {
         sound: [["slider", 2, 9, 1, 1], ["slider", 1, 1, 2, 4]],
         display: [["slider", 2, 9, 1, 1], ["slider", 1, 1, 2, 4]],
         notifications: [["notifications", 4, 9, 2, 5]],
+        tray: [["tray", 3, 9, 1, 2]],
         nowplaying: [["nowplaying", 3, 3, 2, 2]],
         system: [["tile", 2, 4, 1, 1], ["system", 3, 4, 2, 2]]
     })
@@ -60,6 +62,7 @@ Singleton {
         case "main": return mainHeight
         case "sound": return Metrics.ccSoundHeight
         case "display": return Math.min(Metrics.ccSoundHeight, displayHeight)
+        case "nightlight": return Metrics.ccHeight
         case "battery": return 446
         case "system": return 600
         default: return Metrics.ccHeight
@@ -111,4 +114,18 @@ Singleton {
         return placed
     }
     function save(list: var): void { Config.controlCenter.items = list }
+
+    // Add the new tray card to existing saved layouts once, while still allowing the user to remove it later.
+    function ensureTray(): void {
+        const saved = Config.controlCenter.items
+        if (!saved || !saved.length || saved.some(item => item.id === "tray")) return
+        const size = capabilities.tray[0]
+        const spot = firstFree(saved, size[1], size[3], columns)
+        if (spot) Config.controlCenter.items = saved.concat([{ id: "tray", kind: size[0], x: spot.x, y: spot.y, w: size[1], h: size[3] }])
+    }
+    Component.onCompleted: Qt.callLater(() => root.ensureTray())
+    Connections {
+        target: Config.controlCenter
+        function onItemsChanged(): void { Qt.callLater(() => root.ensureTray()) }
+    }
 }

@@ -6,13 +6,10 @@ import qs.config
 
 Singleton {
     id: root
-    // Bundled themes first, then generated ones (the wallpaper theme) in ~/.local/state/dynamite/themes.
-    readonly property string bundledDir: Quickshell.shellDir + "/themes"
+    // The manager renders Omarchy colors.toml into this runtime cache for QML.
     readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/dynamite/themes"
-    property bool fromStateDir: false
     readonly property string name: Config.appearance.theme
-    readonly property string themePath: (fromStateDir ? stateDir : bundledDir) + "/" + name + ".json"
-    onNameChanged: fromStateDir = false
+    readonly property string themePath: stateDir + "/" + name + ".json"
 
     readonly property var defaults: ({
         accent: "#49E3AF", accentContainer: "#205543", onAccent: "#0B1A14", island: "#000000",
@@ -115,6 +112,9 @@ Singleton {
         code: ({ family: "JetBrainsMono Nerd Font", weight: Font.Normal, pixelSize: 16 })
     })
 
+    Timer { id: cacheReload; interval: 400; repeat: false; onTriggered: themeFile.reload() }
+    onNameChanged: cacheReload.restart()
+
     // font.pixelSize is an int; fractional pixel sizes from the spec go through font.pointSize (96 dpi).
     function pt(px: real): real { return px * 0.75 }
 
@@ -129,13 +129,11 @@ Singleton {
         watchChanges: true
         printErrors: false
         onLoaded: {
+            if (root.name === "wallpaper") return
             try { root.apply(JSON.parse(text())) }
-            catch (error) { console.warn("[Dynamite] invalid theme JSON:", error) }
+            catch (error) { console.warn("[Dynamite] invalid rendered theme JSON:", error) }
         }
-        onLoadFailed: {
-            if (!root.fromStateDir) root.fromStateDir = true
-            else console.warn("[Dynamite] theme not found:", Config.appearance.theme)
-        }
+        onLoadFailed: console.warn("[Dynamite] theme not found:", Config.appearance.theme)
         onFileChanged: reload()
     }
 }

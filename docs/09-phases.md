@@ -139,7 +139,7 @@ Accept: matches screens 12–13 in the nested session; wrong password shakes; th
 
 Read: `02-design-tokens.md` (themes), `06-overlays.md` (theme picker), `05-control-center.md` (game mode).
 
-Accept: matches screens 22 and 11; at least 8 theme JSONs (the `wallpaper` theme comes in Phase 13); applying a theme recolors everything live (islands, CC, media tint); game mode swaps the islands for the 47 px bar, changes the exclusive zone, and restores everything on exit.
+Accept: matches screens 22 and 11; at least 8 Omarchy `colors.toml` packages; applying a theme recolors everything live (islands, CC, media tint); game mode swaps the islands for the 47 px bar, changes the exclusive zone, and restores everything on exit.
 
 ## Phase 12 — Settings app and CC layout editor
 
@@ -155,19 +155,19 @@ Settings pages for the extras (Wallpaper, Clipboard, Power & Battery, Weather, S
 
 These rebuild simple-bar's features (`10-extras.md`). No Figma reference exists, so each phase's report must include a screenshot of every new mode/page, plus a sentence on how it reuses existing components. Each phase also adds its settings page/rows and its config keys (`02-design-tokens.md` → extras keys), including the one-time legacy import.
 
-## Phase 13 — Wallpapers, wallpaper theme, terminal colors
+## Phase 13 — Omarchy themes, wallpapers, and app colors
 
 Read: `10-extras.md` §1–3, Migration.
 
-Build: `services/Wallpaper.qml`, `island/panels/WallpaperPicker.qml` (Local tab only), `scripts/palette.py`, the `wallpaper` theme + swatches in the theme picker, `services/TerminalThemes.qml`, `templates/kitty.conf`, `templates/foot.ini`, IPC `wallpaper.*`, Settings → Wallpaper.
+Build: `scripts/theme_manager.py`, Omarchy `colors.toml` packages, `services/Themes.qml`, `services/Wallpaper.qml`, separate `island/panels/ThemePicker.qml` and `WallpaperPicker.qml`, `scripts/theme_catalog.py`, IPC `wallpaper.*`, Settings → Wallpaper, and the `dynamite-theme` CLI. Mod+3 opens themes; Mod+4 opens wallpapers for the active theme. Applying a theme also chooses a random wallpaper from its theme folder and updates the documented app configs.
 
-Accept: the acceptance lists of §1–3. In the nested session use a scratch wallpaper folder and a scratch `$HOME`-relative output for terminal files if you don't want to touch the real Kitty config (`DYNAMITE_TERMINAL_DIR` override for dev is fine).
+Accept: the acceptance lists of §1–2. In the nested session use a scratch `$HOME` for the theme manager's documented outputs.
 
 ## Phase 14 — Wallhaven
 
 Read: `10-extras.md` §4.
 
-Build: `services/Wallhaven.qml`, the Online tab, preview/keep/revert, settings rows (API key, purity, fit screen).
+Build: `services/Wallhaven.qml`, the WallpaperPicker Online tab, preview/keep/revert, background accent classification into one matching theme's wallpaper folder, settings rows (API key, purity, fit screen).
 
 Accept: the acceptance list of §4.
 

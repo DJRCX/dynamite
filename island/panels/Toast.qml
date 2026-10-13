@@ -29,6 +29,10 @@ Item {
 
     HoverHandler { onHoveredChanged: Overlays.toastHovered = hovered }
     TapHandler { onTapped: Overlays.activateToast() }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: Overlays.dismissToast()
+    }
 
     component Content: Item {
         id: content

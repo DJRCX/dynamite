@@ -9,5 +9,6 @@ BluetoothPage 1.0 BluetoothPage.qml
 SoundPage 1.0 SoundPage.qml
 MonitorCard 1.0 MonitorCard.qml
 DisplayPage 1.0 DisplayPage.qml
+NightLightPage 1.0 NightLightPage.qml
 BatteryPage 1.0 BatteryPage.qml
 SystemPage 1.0 SystemPage.qml

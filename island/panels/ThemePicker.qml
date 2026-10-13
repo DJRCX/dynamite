@@ -5,44 +5,81 @@ import qs.services
 import qs.state
 import qs.theme
 
-// 802 × 220: search row, a carousel of theme cards with the selection centered, and the apply hint.
+// Theme selection is intentionally separate from wallpaper browsing.
 Item {
     id: root
-    readonly property var themes: Themes.list.filter(theme => matches(theme, input.text))
-    property string selectedName: ""
-    readonly property int selectedIndex: Math.max(0, Themes.indexOf(selectedName, themes))
-    readonly property real pitch: Metrics.themeCardWidth + Metrics.themeCardGap
-    readonly property real carouselHeight: 106
-    readonly property real hintRight: width - 13
+    width: 802
+    height: Metrics.themePickerHeight
 
+    property string query: ""
+    property string selectedName: ""
     property bool scrollSprung: false
+
+    readonly property var themes: Themes.list.filter(theme => matches(theme, query))
+    readonly property int selectedIndex: {
+        const index = themes.findIndex(theme => theme.name === selectedName)
+        return index < 0 ? 0 : index
+    }
+    readonly property real pitch: Metrics.themeCardWidth + Metrics.themeCardGap
     property real scroll: selectedIndex * pitch
     Behavior on scroll { enabled: root.scrollSprung; Spring { token: Motion.panel } }
 
-    function matches(theme: var, query: string): bool {
-        const q = query.trim().toLowerCase()
-        return q === "" || theme.name.toLowerCase().includes(q) || (theme.label ?? "").toLowerCase().includes(q)
+    function matches(theme: var, searchText: string): bool {
+        const value = searchText.trim().toLowerCase()
+        return value === "" || theme.name.toLowerCase().includes(value)
+            || (theme.label ?? "").toLowerCase().includes(value)
     }
+
     function reset(): void {
         scrollSprung = false
-        input.text = ""
+        query = ""
         selectedName = Config.appearance.theme
         Themes.refresh()
-        input.forceActiveFocus()
+        input.text = ""
+        Qt.callLater(() => input.forceActiveFocus())
         scrollSprung = true
     }
+
+    function applyTheme(theme: var): void {
+        if (!theme) return
+        Themes.apply(theme.name)
+    }
+
+    function moveTheme(delta: int): void {
+        if (!themes.length) return
+        const index = Math.max(0, Math.min(themes.length - 1, selectedIndex + delta))
+        selectedName = themes[index].name
+    }
+
+    function handleKey(event): void {
+        if (event.key === Qt.Key_Escape) {
+            Island.close()
+        } else if (event.key === Qt.Key_Left) {
+            if (input.text.length && input.cursorPosition > 0) return
+            moveTheme(-1)
+        } else if (event.key === Qt.Key_Right) {
+            if (input.text.length && input.cursorPosition < input.text.length) return
+            moveTheme(1)
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (themes.length) applyTheme(themes[selectedIndex])
+        } else {
+            return
+        }
+        event.accepted = true
+    }
+
     Component.onCompleted: reset()
     Connections {
         target: Island
         function onModeChanged() { if (Island.mode === "themes") root.reset() }
     }
-
-    function move(delta: int): void {
-        if (themes.length === 0) return
-        selectedName = themes[Math.max(0, Math.min(themes.length - 1, selectedIndex + delta))].name
-    }
-    function applySelected(): void {
-        if (themes.length > 0) Themes.apply(themes[selectedIndex].name)
+    Connections {
+        target: Themes
+        function onListChanged() {
+            if (root.themes.some(theme => theme.name === root.selectedName)) return
+            const active = Themes.list.find(theme => theme.name === Config.appearance.theme)
+            root.selectedName = active?.name ?? (root.themes.length ? root.themes[0].name : "")
+        }
     }
 
     Icon {
@@ -54,9 +91,10 @@ Item {
     }
     TextInput {
         id: input
-        x: 42; y: 20
+        x: 42; y: 12
         width: counter.x - x - 12
-        height: 17
+        height: 19
+        text: root.query
         verticalAlignment: TextInput.AlignVCenter
         color: Theme.text
         font.family: "Inter"
@@ -69,14 +107,12 @@ Item {
             visible: input.cursorVisible
         }
         clip: true
-        onTextChanged: root.selectedName = root.themes.length > 0 ? root.themes[0].name : ""
-        Keys.onPressed: event => {
-            if (event.key === Qt.Key_Escape) { Island.close(); event.accepted = true }
-            else if (event.key === Qt.Key_Left) { root.move(-1); event.accepted = true }
-            else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab) { root.move(1); event.accepted = true }
-            else if (event.key === Qt.Key_Backtab) { root.move(-1); event.accepted = true }
-            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.applySelected(); event.accepted = true }
+        onTextChanged: {
+            root.query = text
+            if (!root.themes.some(theme => theme.name === root.selectedName))
+                root.selectedName = root.themes.length ? root.themes[0].name : ""
         }
+        Keys.onPressed: event => root.handleKey(event)
         Txt {
             anchors.verticalCenter: parent.verticalCenter
             visible: input.text === ""
@@ -87,19 +123,18 @@ Item {
     }
     Txt {
         id: counter
-        x: root.hintRight - width
+        x: root.width - 14 - width
         anchors.baseline: input.baseline
         px: 10
         color: Theme.textMuted
-        text: root.themes.length > 0 ? (root.selectedIndex + 1) + "/" + root.themes.length : "0/" + Themes.list.length
+        text: root.themes.length ? (root.selectedIndex + 1) + "/" + root.themes.length : "0/" + Themes.list.length
     }
 
     Item {
         id: carousel
-        y: 64
-        width: root.width
-        height: root.carouselHeight
-
+        x: 0; y: 52
+        width: root.width; height: 112
+        clip: true
         Repeater {
             model: root.themes
             delegate: Item {
@@ -111,20 +146,18 @@ Item {
                 x: (root.width - Metrics.themeCardWidth) / 2 + index * root.pitch - root.scroll
                 visible: x > -width && x < root.width
                 width: Metrics.themeCardWidth
-                height: root.carouselHeight
-
+                height: root.height
                 property real lift: selected ? Metrics.themeCardLift : 0
                 Behavior on lift { Spring { token: Motion.panel } }
                 property real outline: selected ? 1 : 0
                 Behavior on outline { Spring { token: Motion.fade; epsilon: 0.005 } }
 
                 Rectangle {
-                    y: (root.carouselHeight - height) / 2 - slot.lift
+                    y: (carousel.height - height) / 2 - slot.lift
                     width: Metrics.themeCardWidth
                     height: Metrics.themeCardHeight
                     radius: Metrics.themeCardRadius
                     color: slot.modelData.panel ?? Theme.panel
-
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: 40 - Metrics.themeDot / 2
@@ -146,7 +179,8 @@ Item {
                         px: 10
                         weight: slot.selected ? Font.DemiBold : Font.Medium
                         color: slot.selected ? Theme.text : Theme.textSecondary
-                        text: slot.modelData.name
+                        text: slot.modelData.label ?? slot.modelData.name
+                        elide: Text.ElideRight
                     }
                     Rectangle {
                         x: parent.width - 12 - width / 2
@@ -169,7 +203,11 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: slot.selected ? root.applySelected() : (root.selectedName = slot.modelData.name)
+                    onClicked: {
+                        root.selectedName = slot.modelData.name
+                        input.forceActiveFocus()
+                        root.applyTheme(slot.modelData)
+                    }
                 }
             }
         }
@@ -180,25 +218,23 @@ Item {
         onWheel: event => {
             accumulated += Math.abs(event.angleDelta.x) > Math.abs(event.angleDelta.y) ? event.angleDelta.x : event.angleDelta.y
             while (Math.abs(accumulated) >= 120) {
-                root.move(accumulated > 0 ? -1 : 1)
+                root.moveTheme(accumulated > 0 ? -1 : 1)
                 accumulated -= accumulated > 0 ? 120 : -120
             }
         }
     }
 
+    Rectangle { x: 14; y: 178; width: root.width - 28; height: 1; color: Theme.divider }
     Txt {
-        x: root.hintRight - width
-        y: 192
+        x: 15; y: 187
         px: 9.5
         color: Theme.textMuted
-        text: "Enter to apply"
+        text: "← / → to browse · Enter to apply (random wallpaper)"
     }
-
     Txt {
-        anchors.centerIn: carousel
-        visible: root.themes.length === 0
-        px: 13
-        color: Theme.textSecondary
-        text: "No themes match"
+        x: root.width - 14 - width; y: 187
+        px: 9.5
+        color: Theme.textMuted
+        text: "Mod+4: Wallpapers"
     }
 }

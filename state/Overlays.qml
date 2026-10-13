@@ -17,7 +17,7 @@ Singleton {
 
     function showOsd(kind: string): void {
         const mode = Island.mode
-        if (!["collapsed", "clock", "osd"].includes(mode)) return
+        if (!Niri.focusedFullscreen && !["collapsed", "clock", "osd"].includes(mode)) return
         osdKind = kind
         if (mode !== "osd") {
             osdReturn = mode
@@ -56,6 +56,7 @@ Singleton {
 
     function pumpToasts(): void {
         if (!Notifs.toastQueue.length) return
+        if (Niri.focusedFullscreen) return
         const mode = Island.mode
         if (mode === "cc") {
             // The CC's notifications card already shows them.
@@ -76,6 +77,11 @@ Singleton {
     }
     function activateToast(): void {
         Island.open("cc")
+    }
+    function dismissToast(): void {
+        const entry = toast
+        if (entry) Notifs.dismiss(entry)
+        showNext()
     }
     function invokeAction(action: var): void {
         const entry = toast
@@ -102,6 +108,20 @@ Singleton {
         function onModeChanged() {
             if (Island.mode !== "toast") root.toastHovered = false
             Qt.callLater(root.pumpToasts)
+        }
+    }
+    Connections {
+        target: Niri
+        function onFocusedFullscreenChanged(): void {
+            if (Niri.focusedFullscreen) {
+                if (Island.mode === "toast" && root.toast) {
+                    Notifs.toastQueue = [root.toast].concat(Notifs.toastQueue)
+                    root.toast = null
+                }
+                if (Island.mode !== "osd") Island.close()
+            } else {
+                Qt.callLater(root.pumpToasts)
+            }
         }
     }
 }

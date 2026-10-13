@@ -74,6 +74,7 @@ Item {
                 readonly property date day: new Date(grid.year, grid.month, 1 - grid.lead + index)
                 readonly property bool inMonth: day.getMonth() === grid.month
                 readonly property bool isToday: day.toDateString() === root.today.toDateString()
+                readonly property bool isWeekend: Metrics.weekendDays.includes(day.getDay())
                 x: 36 + 44 * (index % 7) - width / 2
                 y: 90 + 32 * Math.floor(index / 7) - height / 2
                 width: 30
@@ -90,7 +91,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: cell.day.getDate()
-                    color: cell.isToday ? Theme.onAccent : Theme.text
+                    color: cell.isToday ? Theme.onAccent : cell.isWeekend ? Theme.danger : Theme.text
                     opacity: cell.inMonth ? 1 : 0.2
                     font.family: "Inter"
                     font.weight: cell.isToday ? Font.Bold : Font.Medium
@@ -131,7 +132,7 @@ Item {
             anchors.verticalCenter: parent.top
             anchors.verticalCenterOffset: 59
             text: root.weekdayLetters[index]
-            color: Theme.textMuted
+            color: Metrics.weekendDays.includes(index) ? Theme.danger : Theme.textMuted
             font.family: "Inter"
             font.weight: Font.Medium
             font.pixelSize: 10
@@ -151,10 +152,11 @@ Item {
         x: 14; y: 279; width: parent.width - 28; height: Weather.expanded ? 114 : 50; radius: 14; color: Theme.card
         Behavior on height { Spring { token: Motion.panel } }
         Row {
-            x: 10; y: 5; width: parent.width - 20; height: 40; spacing: 4
+            id: overview
+            x: Metrics.weatherStripInsetX; y: 5; width: parent.width - Metrics.weatherStripInsetX * 2; height: 40; spacing: Metrics.weatherOverviewGap
             MouseArea {
-                width: 112; height: 40; onClicked: Weather.expanded = !Weather.expanded
-                Row { anchors.fill: parent; spacing: 4
+                width: Metrics.weatherCurrentWidth; height: 40; onClicked: Weather.expanded = !Weather.expanded
+                Row { anchors.fill: parent; spacing: Metrics.weatherOverviewGap
                     Icon { anchors.verticalCenter: parent.verticalCenter; name: Weather.icon(Weather.code, Weather.isDay); size: 20; color: Theme.accent }
                     Column { anchors.verticalCenter: parent.verticalCenter; spacing: 0
                         Text { text: Math.round(Weather.temperature) + "°"; color: Theme.text; font.weight: Font.DemiBold; font.pixelSize: 15 }
@@ -163,29 +165,31 @@ Item {
                 }
             }
             Repeater {
-                model: 5
+                model: Metrics.weatherDayCount
                 Column {
                     required property int index
-                    width: (weatherStrip.width - 136) / 5; height: 40; spacing: 0
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Weather.daily.time?.[index] ? Qt.formatDate(new Date(Weather.daily.time[index] + "T12:00:00"), "ddd") : "—"; color: Theme.textMuted; font.pixelSize: 9 }
+                    width: (overview.width - Metrics.weatherCurrentWidth - overview.spacing * Metrics.weatherDayCount) / Metrics.weatherDayCount
+                    height: 40; spacing: 0
+                    Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: Weather.daily.time?.[index] ? Qt.formatDate(new Date(Weather.daily.time[index] + "T12:00:00"), "ddd") : "—"; color: Theme.textMuted; font.pixelSize: 9 }
                     Icon { anchors.horizontalCenter: parent.horizontalCenter; name: Weather.daily.weather_code?.[index] !== undefined ? Weather.icon(Weather.daily.weather_code[index], true) : "cloud"; size: 14; color: Theme.textSecondary }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Weather.daily.temperature_2m_max?.[index] !== undefined ? Math.round(Weather.daily.temperature_2m_max[index]) + "° / " + Math.round(Weather.daily.temperature_2m_min[index]) + "°" : ""; color: Theme.textSecondary; font.pixelSize: 9 }
+                    Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: Weather.daily.temperature_2m_max?.[index] !== undefined ? Math.round(Weather.daily.temperature_2m_max[index]) + "°/" + Math.round(Weather.daily.temperature_2m_min[index]) + "°" : ""; color: Theme.textSecondary; font.pixelSize: 9 }
                 }
             }
         }
         Row {
-            visible: Weather.expanded; x: 8; y: 54; width: parent.width - 16; height: 50; spacing: 3
-            Repeater { model: 12; delegate: Column {
+            id: hourlyRow
+            visible: Weather.expanded; x: Metrics.weatherHourlyInsetX; y: 54; width: parent.width - Metrics.weatherHourlyInsetX * 2; height: 50; spacing: Metrics.weatherHourlyGap
+            Repeater { model: Metrics.weatherHourCount; delegate: Column {
                 required property int index
-                width: (weatherStrip.width - 20) / 12; spacing: 1
+                width: (hourlyRow.width - hourlyRow.spacing * (Metrics.weatherHourCount - 1)) / Metrics.weatherHourCount; spacing: 1
                 readonly property int hourIndex: {
                     const times = Weather.hourly.time || []
                     const next = times.findIndex(t => new Date(t).getTime() >= Date.now())
                     return Math.max(0, next) + index
                 }
-                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Weather.hourly.time?.[parent.hourIndex] ? Qt.formatDateTime(new Date(Weather.hourly.time[parent.hourIndex]), "h AP") : ""; color: Theme.textMuted; font.pixelSize: 8 }
+                Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: Weather.hourly.time?.[parent.hourIndex] ? Qt.formatDateTime(new Date(Weather.hourly.time[parent.hourIndex]), "hA") : ""; color: Theme.textMuted; font.pixelSize: 8 }
                 Icon { anchors.horizontalCenter: parent.horizontalCenter; name: Weather.hourly.weather_code?.[parent.hourIndex] !== undefined ? Weather.icon(Weather.hourly.weather_code[parent.hourIndex], true) : "cloud"; size: 12; color: Theme.textSecondary }
-                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Weather.hourly.temperature_2m?.[parent.hourIndex] !== undefined ? Math.round(Weather.hourly.temperature_2m[parent.hourIndex]) + "°" : ""; color: Theme.textSecondary; font.pixelSize: 9 }
+                Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: Weather.hourly.temperature_2m?.[parent.hourIndex] !== undefined ? Math.round(Weather.hourly.temperature_2m[parent.hourIndex]) + "°" : ""; color: Theme.textSecondary; font.pixelSize: 9 }
             } } }
     }
 

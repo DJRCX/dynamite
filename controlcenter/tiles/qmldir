@@ -2,3 +2,5 @@ Tile 1.0 Tile.qml
 ToggleCircle 1.0 ToggleCircle.qml
 SliderCard 1.0 SliderCard.qml
 NotificationsCard 1.0 NotificationsCard.qml
+TrayCard 1.0 TrayCard.qml
+NowPlayingCard 1.0 NowPlayingCard.qml

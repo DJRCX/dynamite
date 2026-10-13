@@ -16,10 +16,9 @@ Dropped on purpose: simple-bar's four "bar workspaces" and their timeout (the is
 
 | # | Feature | Where it lives in Dynamite | Phase |
 |---|---|---|---|
-| 1 | Wallpapers + random awww transitions | island mode `wallpapers` (center island), Settings → Wallpaper | 13 |
-| 2 | Theme generated from the wallpaper | a `wallpaper` entry in the theme picker | 13 |
-| 3 | Terminal colors (Kitty/Foot) + opacity | background exporter on every theme change | 13 |
-| 4 | Wallhaven browser | "Online" tab of the `wallpapers` mode | 14 |
+| 1 | Omarchy themes + wallpapers | island modes `themes` and `wallpapers`, Settings → Wallpaper | 13 |
+| 2 | Managed app colors (Kitty/Foot/Fish/GTK/KDE) | `dynamite-theme` output generator | 13 |
+| 3 | Wallhaven browser | "Online" tab of the `wallpapers` mode | 14 |
 | 5 | Clipboard history | island mode `clipboard` | 15 |
 | 6 | Keybinding cheatsheet | island mode `keybinds` | 15 |
 | 7 | Power profiles (TLP auto-switching) | CC control `power` + CC page `battery` | 16 |
@@ -28,72 +27,35 @@ Dropped on purpose: simple-bar's four "bar workspaces" and their timeout (the is
 | 10 | Weather | strip in the calendar (+ optional hover clock / lock screen) | 17 |
 | 11 | Focused-app badge → window menu | island mode `window` (right-click the center island) | 17 |
 
-New island modes: `wallpapers`, `clipboard`, `keybinds`, `window`. All four are **center-island, interactive, keyboard-exclusive** modes: add them to `interactive` and `wantsKeyboard` in `state/Island.qml` and to the `Exclusive` focus list. New `ccPage` values: `battery`, `system`.
+New island modes: `themes`, `wallpapers`, `clipboard`, `keybinds`, `window`. All five are **center-island, interactive, keyboard-exclusive** modes: add them to `interactive` and `wantsKeyboard` in `state/Island.qml` and to the `Exclusive` focus list. New `ccPage` values: `battery`, `system`.
 
 ---
 
-## 1. Wallpapers
+## 1. Omarchy themes and wallpapers
 
-**Old:** `theme.py` listed `wallpaper_dir`, made PIL thumbnails, applied with `awww img` and a random transition (wipe/fade/grow/wave/outer/left/right/top/bottom, 1.2 s, 60 fps), saved the path in `config.json`, and the `awww-daemon.service` restored it at login through `ExecStartPost=theme.py init`.
+**New — `services/Themes.qml`, `services/Wallpaper.qml`, `scripts/theme_catalog.py`, `island/panels/ThemePicker.qml`, and `island/panels/WallpaperPicker.qml`:**
 
-**Problems:** one wallpaper for all outputs; 60 fps hard-coded (your panel is 144 Hz); every list call re-scanned and re-thumbnailed synchronously in Python; the restore path depends on a Python script inside the repo.
-
-**New — `services/Wallpaper.qml` + `island/panels/WallpaperPicker.qml`:**
-
-- **Mode `wallpapers`**, center island **802 × 262** (theme-picker width). Same anatomy as the theme picker: search row at y 21 (`search` icon, "Search wallpapers...", counter "12/48" right-aligned), then a **tab row** at y 56: two chips "Local" / "Online" (26 tall, radius 13, active `accent`/`onAccent`, inactive `chip`/`text`, the active chip slides with the `panel` spring), then the carousel at y 92: **16:9 cards 185 × 104**, 9 px gaps, selected card centered with a 2 px `accent` outline and the file name (Medium 10) under it. Footer hint at y 236: "Enter apply · Shift+Enter this display only · Space preview" Regular 9.5 `textMuted`.
-- **Listing:** `FolderListModel` (`Qt.labs.folderlistmodel`) on `Config.wallpaper.dir`, `nameFilters: ["*.jpg","*.jpeg","*.png","*.webp","*.bmp"]`, sorted by modified time (newest first). Thumbnails are plain `Image`s with `sourceSize: Qt.size(370, 208)`, `asynchronous: true`, `cache: true` (Qt decodes JPEGs downscaled, so no thumbnail cache is needed).
-- **Apply:** `awww img <path> -o <output> --transition-type <t> --transition-duration <Config.wallpaper.transitionSeconds> --transition-fps <that output's refresh rate from Niri>`. Enter applies to **all outputs**, Shift+Enter to the focused output only. `transition: "random"` picks from the same set as the old script (keep its angle/position choices). Improvement: when applied from the picker, `grow` uses `--transition-pos` at the island's position on screen, so the new wallpaper visibly grows out of the island.
-- **Preview:** Space applies the selected wallpaper temporarily with a short fade; Esc restores the previous one; Enter keeps it.
-- **Right-click a card:** Set on all displays, Set on this display, Use for theme (applies + switches the theme to `wallpaper`), Move to trash (`gio trash <path>`, confirm).
-- **Slideshow (new):** `Config.wallpaper.slideshowMinutes` (0 = off). Shuffle without repeats until every file has been shown.
-- **Persistence:** `Config.wallpaper.current` is a map `{ "<output>": "<path>", "*": "<path>" }`. On startup the service waits for `awww query` to succeed (retry every 200 ms, up to 5 s) and restores each output with a 1 s fade. This replaces the `ExecStartPost` line; the new `systemd/awww-daemon.service` only runs the daemon.
-- The lock screen background (`06-overlays.md`) reads the focused output's entry.
+- Mod+3 opens a theme-only carousel and search. It has no color-family filters. Applying a theme through the picker or Settings chooses a random wallpaper from that exact theme's library.
+- Mod+4 opens a separate wallpaper picker scoped to the active theme name. Local and online browsing live here; applying a wallpaper does not change the theme.
+- Omarchy `colors.toml` packages live under `themes/<slug>/` or `~/.config/omarchy/themes/<slug>/`. User-created packages live under `~/Pictures/Themes/<slug>/`; shipped backgrounds stay in the package and personal or downloaded backgrounds live in `~/Pictures/Themes/<slug>/images/`.
+- `Wallpaper.qml` uses this catalog for random, next, previous, and slideshow choices. Wallpaper changes never generate or modify a theme palette.
+- Apply with `awww img <path> -o <output> --transition-type <t> --transition-duration <Config.wallpaper.transitionSeconds>`. Transition and target output remain configurable. The lock screen uses the saved wallpaper for its output.
+- Wallhaven preview is temporary; Escape restores the previous wallpaper. Keeping an online image saves it to the active theme's `~/Pictures/Themes/<slug>/images/` folder before applying it.
 - IPC: `wallpaper.set(path: string)`, `wallpaper.random()`, `wallpaper.next()`, `wallpaper.prev()`.
 
-Accept: picker opens with the right size and springs; cards load without blocking typing; apply to one output vs all works on a 2-output setup (or two nested outputs); transition fps matches the output's refresh; slideshow rotates; wallpaper survives a nested-session restart without Python.
+Accept: the catalog shows each supported image once; applying a wallpaper persists across reloads; slideshow selection uses all catalogued wallpapers.
 
-## 2. Theme from the wallpaper
+## 2. Managed app colors
 
-**Old:** `extract_palette()` (Pillow) produced a simple-bar token set + 6 swatches, written to `colors.json` **inside the repo**, plus `~/.cache/simple-bar/colors.{json,css}`; `set-accent` and `set-theme-mode` (pitch black / tinted) re-ran it.
+`scripts/theme_manager.py` maps the selected Omarchy `colors.toml` into Dynamite, Fish, Kitty, Foot, GTK, KDE, Fuzzel, Firefox, and Steam outputs. It preserves the first preexisting version of any managed destination as `.dynamite-backup`. The complete output list is in `themes/README.md`. Wallpapers do not affect this flow.
 
-**Problems:** token set doesn't match Dynamite's; no contrast checks (accent text on dark cards could be unreadable); output lived in the git tree.
-
-**New — `dynamite/scripts/palette.py` + the `wallpaper` theme:**
-
-- Port the extraction from `../scripts/theme.py` into `dynamite/scripts/palette.py` (copy, then adapt; don't import the legacy file). CLI: `palette.py <image> --mode pitch_black|tinted [--accent '#RRGGBB']` → prints a **full Dynamite theme JSON** (every key from `02-design-tokens.md`, `"name": "wallpaper"`, `"label": "From wallpaper"`) plus a `"swatches"` array of 6 candidate accents.
-- Write it to `~/.local/state/dynamite/themes/wallpaper.json` (never into the repo). `Theme` looks in `themes/` first, then in that state directory.
-- **Ramp:** `island` stays `#000000`. `pitch_black` = the neutral ramp from Horizon with only `accent`/`accentContainer`/`onAccent` from the image. `tinted` = the ramp mixed 6–10% toward the dominant hue.
-- **Contrast rules (new):** `onAccent` vs `accent` ≥ 4.5:1 (pick near-black or near-white), `accent` vs `panel` ≥ 3:1 (lighten/darken the accent in HSL until it passes), `text` vs `panel` ≥ 7:1. Reject swatches that can't pass.
-- **Theme picker:** the `wallpaper` card shows the 6 swatches under its preview; ←/→ on that card's swatch row (Tab to enter it) re-runs with `--accent`. `Config.appearance.wallpaperAccent` remembers the choice.
-- Re-run automatically after a wallpaper change **only when** `Config.appearance.theme === "wallpaper"`. Run with `Process`, debounce 300 ms, and swap the theme only when the new JSON is complete (write to a temp file, then rename).
-- Also export `~/.cache/dynamite/colors.json` and `colors.css` (`--dyn-<token>` variables) for other apps, like the old `--sb-*` file.
-
-Accept: switching wallpaper with the `wallpaper` theme active recolors the shell with the `fade` crossfade within ~1 s; contrast rules hold for 10 varied wallpapers (write a tiny check that loads each output JSON and asserts the ratios).
-
-## 3. Terminal colors
-
-**Old:** on every wallpaper change, wrote `~/.config/kitty/current-theme.conf` (with `background_opacity` from `terminal_opacity`) and `~/.config/foot/colors.ini`, ANSI colors chosen by binning swatch hues, then `pkill -USR1 kitty`.
-
-**Problems:** only followed the wallpaper theme (picking "Gruvbox" didn't recolor terminals); ANSI colors had no contrast guarantee; string-templated inside Python.
-
-**New — `services/TerminalThemes.qml` + `dynamite/templates/`:**
-
-- Trigger on **any** theme change (debounced 300 ms), not just wallpaper changes.
-- Templates in `dynamite/templates/kitty.conf` and `foot.ini` with `{{token}}` placeholders, filled in QML and written with `FileView.setText`. Only write a terminal's file if its config directory exists and `Config.terminal.<name>` is on.
-- ANSI 0–15: derive from the theme. `color4`/`12` = accent, `color0`/`8` = `card`/`chip`, `color7`/`15` = `textSecondary`/`text`; red/green/yellow/blue/magenta/cyan from the theme's optional `"ansi"` object if present, else the old hue-binning over the swatches, else defaults (keep the old Catppuccin fallbacks). Every ANSI color must reach 3:1 against the terminal background; adjust lightness until it does.
-- Background: `Theme.island` (pure black) or `Theme.window`, by `Config.terminal.background` (`"black"`/`"theme"`). Opacity: `Config.terminal.opacity` (default from the legacy `terminal_opacity`, 0.8).
-- Reload: Kitty → `pkill -USR1 kitty` (argv form). Foot → new windows pick it up; if the installed `foot --version` supports live reload, use it, otherwise say so in the settings row.
-- Optional extra templates (Ghostty, Alacritty) only if their config dirs exist; off by default.
-
-Accept: switching between three themes recolors open Kitty windows each time; generated files diff cleanly against the template; disabling a terminal stops writing its file.
-
-## 4. Wallhaven browser
+## 3. Wallhaven browser
 
 **Old:** a separate panel with keyword search, sorting presets (Toplist/Hot/Latest/Random), 12 per page, Python `urllib`, download into the wallpaper dir and apply.
 
 **Problems:** manual pagination; results not filtered for your screens; applying downloaded a full image you might not keep; Python on every page.
 
-**New — the "Online" tab of `wallpapers`:**
+**New — the "Online" tab of the separate `wallpapers` picker:**
 
 - Requests from QML with `XMLHttpRequest` to `https://wallhaven.cc/api/v1/search` (`sorting`, `q`, `page`, `purity`, `categories`, `ratios`, `atleast`). Debounce typing 500 ms; stay under the API limit (45 req/min) with a simple request queue.
 - **Sorting chips** under the search row: Toplist · Hot · Latest · Random (same chip style as the tabs).
@@ -101,11 +63,11 @@ Accept: switching between three themes recolors open Kitty windows each time; ge
 - **Fit your screens (new):** `atleast=<focused output's WxH>` and `ratios=` its aspect ratio, toggled by `Config.wallhaven.fitScreen` (default on).
 - **Match theme (new):** a toggle that adds `colors=<hex>` with the closest of Wallhaven's allowed color values to `Theme.accent`.
 - Thumbnails load straight from `thumbs.large` URLs (`Image` with `asynchronous: true`).
-- **Space = preview:** download to `~/.cache/dynamite/wallhaven/<id>.<ext>` with `curl -fL --max-time 30 -o <file> <url>` (argv), show a progress ring on the card, then apply temporarily (Esc reverts). **Enter = keep:** move the file into `Config.wallpaper.dir` as `wallhaven-<id>.<ext>` and apply it permanently. Clear cached previews older than a day on startup.
+- **Space = preview:** download to `~/.cache/dynamite/wallhaven/<id>.<ext>` with `curl -fL --max-time 30 -o <file> <url>` (argv), then apply temporarily (Esc reverts). **Enter = keep:** download into the cache, move it to `~/.config/omarchy/backgrounds/<active-theme>/`, apply it permanently, and refresh the wallpaper picker.
 - `Config.wallhaven.apiKey` (optional, Settings → Wallpaper) is sent as `X-API-Key`; purity stays SFW (`100`) unless the user changes it in settings.
 - Offline/errors: one-line message in the carousel area ("Wallhaven is unreachable"), retry button.
 
-Accept: search, sorting, infinite scroll, preview → revert, preview → keep (file appears in the Local tab without a reload), errors handled with the network off.
+Accept: search, sorting, infinite scroll, preview → revert, preview → keep (file appears in the active theme's Local list without a reload), errors handled with the network off.
 
 ## 5. Clipboard history
 
@@ -276,8 +238,6 @@ On first run (when `~/.config/dynamite/settings.json` lacks the key), read `../c
 |---|---|
 | `wallpaper` | `wallpaper.current["*"]` |
 | `wallpaper_dir` | `wallpaper.dir` |
-| `theme_mode` | `appearance.wallpaperMode` |
-| `terminal_opacity` | `terminal.opacity` |
 | `weather_lat`, `weather_lon` | `weather.lat`, `weather.lon` |
 | `weather_units` | `weather.units` |
 

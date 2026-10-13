@@ -1,9 +1,11 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.components
 import qs.config
 import qs.controlcenter
+import qs.controlcenter.tiles
 import qs.services
 import qs.state
 import qs.theme
@@ -12,12 +14,26 @@ FloatingWindow {
     id: root
     title: "Dynamite Settings"
     visible: false
+    onVisibleChanged: if (visible && Niri.focusedFullscreen) visible = false
     implicitWidth: 1320
     implicitHeight: Math.min(970, Math.max(600, screen.height - 40))
     color: Theme.window
     property string page: "Bar & Island"
     property string query: ""
     property var pages: ["Bar & Island", "Clock & Date", "Appearance", "Motion", "Launcher", "Notifications", "Control Center", "Lock Screen", "System", "Wallpaper", "Clipboard", "Power & Battery", "Weather", "System monitor"]
+
+    function reopen(page: string): void {
+        if (Niri.focusedFullscreen) return
+        root.visible = false
+        Qt.callLater(() => { root.page = page; root.visible = true })
+    }
+    onClosed: root.visible = false
+    Connections {
+        target: Niri
+        function onFocusedFullscreenChanged(): void {
+            if (Niri.focusedFullscreen) root.visible = false
+        }
+    }
 
     Rectangle { anchors.fill: parent; color: Theme.window; radius: 16; border.width: 1; border.color: Qt.alpha(Theme.text, 0.06) }
     Rectangle {
@@ -34,10 +50,17 @@ FloatingWindow {
                 model: root.pages.filter(p => !root.query || p.toLowerCase().includes(root.query.toLowerCase()))
                 delegate: Rectangle {
                     required property string modelData
+                    readonly property var pageIcons: ({
+                        "Bar & Island": "tune", "Media": "music_note", "Clock & Date": "schedule",
+                        "Appearance": "palette", "Motion": "animation", "Launcher": "search",
+                        "Notifications": "notifications", "Control Center": "tune", "Lock Screen": "lock",
+                        "System": "settings", "Wallpaper": "wallpaper", "Clipboard": "content_paste",
+                        "Power & Battery": "battery_full", "Weather": "partly_cloudy_day", "System monitor": "memory"
+                    })
                     width: 198; height: 38; radius: 10; color: root.page === modelData ? Theme.card : "transparent"
                     Row { anchors.fill: parent; anchors.leftMargin: 9; spacing: 10
                         Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 26; height: 26; radius: 13; color: root.page === modelData ? Theme.accent : Theme.accentContainer
-                            Text { anchors.centerIn: parent; text: "●"; color: root.page === modelData ? Theme.onAccent : Theme.accent; font.pixelSize: 13 }
+                            Icon { anchors.centerIn: parent; name: pageIcons[modelData] || "settings"; size: Metrics.iconSm; color: root.page === modelData ? Theme.onAccent : Theme.accent }
                         }
                         Text { anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.text; font.family: "Inter"; font.pointSize: Theme.pt(12.5) }
                     }
@@ -46,8 +69,8 @@ FloatingWindow {
             }
         }
     }
-    Text { x: 248; y: 14; text: "‹"; color: Theme.text; font.pixelSize: 20 }
-    Text { x: 284; y: 14; text: "›"; color: Theme.text; font.pixelSize: 20 }
+    Icon { x: 248; y: 14; name: "chevron_left"; size: Metrics.iconMd; color: Theme.text }
+    Icon { x: 284; y: 14; name: "chevron_right"; size: Metrics.iconMd; color: Theme.text }
     Flickable {
         x: 243; y: 0; width: 1054; height: parent.height; clip: true
         contentWidth: width; contentHeight: body.implicitHeight + 60
@@ -57,14 +80,55 @@ FloatingWindow {
                 width: 1054; height: 156; radius: 12; color: Theme.group
                 Column { anchors.centerIn: parent; spacing: 10
                     Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 56; height: 56; radius: 28; color: Theme.accentContainer
-                        Text { anchors.centerIn: parent; text: "⚙"; color: Theme.accent; font.pixelSize: 23 }
+                        Icon { anchors.centerIn: parent; name: "settings"; size: Metrics.iconLg; color: Theme.accent }
                     }
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.page; color: Theme.text; font.family: "Inter"; font.pixelSize: 18; font.weight: Font.DemiBold }
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Configure Dynamite. Changes apply immediately."; color: Theme.textSecondary; font.pixelSize: 12 }
                 }
             }
             Rectangle {
-                visible: root.page === "Control Center"; width: 1054; height: 570; radius: 12; color: Theme.group
+                visible: root.page === "Clock & Date"
+                width: Metrics.settingsGroupWidth
+                height: Metrics.settingsClockCardHeight
+                radius: Metrics.settingsCardRadius
+                color: Theme.group
+                Column {
+                    x: Metrics.settingsInset
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 5
+                    Text { text: "Time format"; color: Theme.text; font.family: Theme.fonts.settingsRow.family; font.pixelSize: Theme.fonts.settingsRow.pixelSize; font.weight: Theme.fonts.settingsRow.weight }
+                    Text { text: Config.clock.use24h ? "Preview  ·  14:30" : "Preview  ·  2:30 PM"; color: Theme.textSecondary; font.family: Theme.fonts.caption.family; font.pixelSize: Theme.fonts.caption.pixelSize }
+                }
+                Row {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Metrics.settingsInset
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Metrics.settingsFormatOptionGap
+                    Repeater {
+                        model: [{ label: "24-hour", value: true }, { label: "12-hour", value: false }]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: Metrics.settingsFormatOptionWidth
+                            height: Metrics.settingsFormatOptionHeight
+                            radius: height / 2
+                            color: Config.clock.use24h === modelData.value ? Theme.accent : Theme.control
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.label
+                                color: Config.clock.use24h === modelData.value ? Theme.onAccent : Theme.text
+                                font.family: Theme.fonts.settingsRow.family
+                                font.pixelSize: Theme.fonts.settingsRow.pixelSize
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: Config.clock.use24h = modelData.value
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                visible: root.page === "Control Center"; width: 1054; height: 170 + GridLayoutModel.mainHeight + GridLayoutModel.pitch; radius: 12; color: Theme.group
                 Column { x: 15; y: 14; spacing: 14
                     Text { text: "Layout"; color: Theme.textMuted; font.pixelSize: 11 }
                     Row { spacing: 7
@@ -85,72 +149,110 @@ FloatingWindow {
                             MouseArea { anchors.fill: parent; onClicked: { root.pushUndo(); GridLayoutModel.reset() } }
                         }
                     }
-                    Text { text: "Drag to move · corner to resize · right-click for sizes"; color: Theme.textMuted; font.pointSize: Theme.pt(10.5) }
-                    Item { id: previewArea; width: 550; height: 390
-                        property var sizeChoices: []
-                        property var sizeItem: null
-                        property real sizeMenuX: 0
-                        property real sizeMenuY: 0
-                        function openSizes(item, px, py) {
-                            sizeItem = item
-                            sizeMenuX = Math.max(0, Math.min(width - 110, px))
-                            sizeMenuY = Math.max(0, Math.min(height - 150, py))
-                            const choices = GridLayoutModel.capabilities[item.id] || []
-                            const menu = []
-                            for (const cap of choices)
-                                for (let w = cap[1]; w <= cap[2]; ++w)
-                                    for (let h = cap[3]; h <= cap[4]; ++h) {
-                                        const key = cap[0] + ":" + w + "x" + h
-                                        if (!menu.some(c => c.key === key)) menu.push({key:key, kind:cap[0], w:w, h:h, label:w + "×" + h})
-                                    }
-                            sizeChoices = menu
+                    Text { text: "Drag to move · drag the bottom-right corner to resize freely"; color: Theme.textMuted; font.pointSize: Theme.pt(10.5) }
+                    Item {
+                        id: previewArea
+                        x: (Metrics.settingsGroupWidth - width) / 2 - 15
+                        width: Math.max(550, GridLayoutModel.width)
+                        height: GridLayoutModel.mainHeight + GridLayoutModel.pitch
+                        readonly property real gridOffsetX: (width - GridLayoutModel.width) / 2
+                        Repeater {
+                            model: GridLayoutModel.columns
+                            delegate: Rectangle {
+                                required property int index
+                                x: previewArea.gridOffsetX + GridLayoutModel.pad + index * GridLayoutModel.pitch
+                                y: GridLayoutModel.pad + GridLayoutModel.rows * GridLayoutModel.pitch
+                                width: GridLayoutModel.cell; height: GridLayoutModel.cell
+                                radius: width / 2
+                                color: Qt.alpha(Theme.text, 0.04)
+                            }
                         }
                         Repeater { model: GridLayoutModel.items; delegate: Rectangle {
+                            id: previewCell
                             required property var modelData
-                            x: GridLayoutModel.pad + modelData.x * GridLayoutModel.pitch; y: modelData.y * GridLayoutModel.pitch
+                            readonly property var cellRect: GridLayoutModel.rect(modelData)
+                            x: previewArea.gridOffsetX + cellRect.x
+                            y: cellRect.y
                             Behavior on x { Spring { token: Motion.panel } }
                             Behavior on y { Spring { token: Motion.panel } }
-                            width: modelData.w * GridLayoutModel.pitch - GridLayoutModel.gap; height: modelData.h * GridLayoutModel.pitch - GridLayoutModel.gap
-                            radius: 20; color: Theme.panel; border.width: 1; border.color: selected ? Theme.accent : "transparent"
+                            radius: 20; color: "transparent"
+                            border.width: selected || resizing ? 1 : 0
+                            border.color: resizing && !resizeFits ? Theme.danger : Theme.accent
                             property bool selected: false
-                            Text { anchors.centerIn: parent; text: modelData.id; color: Theme.text; font.pixelSize: 12 }
+                            property bool resizing: false
+                            property real resizeWidth: modelData.w
+                            property real resizeHeight: modelData.h
+                            property real resizeStartX: 0
+                            property real resizeStartY: 0
+                            property real resizeStartWidth: modelData.w
+                            property real resizeStartHeight: modelData.h
+                            readonly property bool resizeFits: GridLayoutModel.canPlace(Object.assign({}, modelData, {w: resizeWidth, h: resizeHeight}), modelData.x, modelData.y)
+                            onModelDataChanged: { resizeWidth = modelData.w; resizeHeight = modelData.h }
+                            width: resizing ? GridLayoutModel.span(resizeWidth) : cellRect.w
+                            height: resizing ? GridLayoutModel.span(resizeHeight) : cellRect.h
+                            Loader {
+                                id: controlPreview
+                                anchors.fill: parent
+                                property var spec: previewCell.modelData
+                                sourceComponent: spec.kind === "tile" ? tileVisual
+                                    : spec.kind === "toggle" ? toggleVisual
+                                    : spec.kind === "slider" ? sliderVisual
+                                    : spec.kind === "notifications" ? notificationsVisual
+                                    : spec.kind === "tray" ? trayVisual
+                                    : spec.kind === "nowplaying" ? nowPlayingVisual : null
+                            }
+                            Component { id: tileVisual; Tile { cid: controlPreview.spec.id; enabled: false } }
+                            Component { id: toggleVisual; ToggleCircle { cid: controlPreview.spec.id; enabled: false } }
+                            Component { id: sliderVisual; SliderCard { cid: controlPreview.spec.id; enabled: false } }
+                            Component { id: notificationsVisual; NotificationsCard { enabled: false } }
+                            Component { id: trayVisual; TrayCard { enabled: false } }
+                            Component { id: nowPlayingVisual; NowPlayingCard { enabled: false } }
+                            Text { anchors.centerIn: parent; visible: !controlPreview.item; text: modelData.id; color: Theme.text; font.pixelSize: 12 }
                             Text { anchors.right: parent.right; anchors.bottom: parent.bottom; text: "◢"; color: Theme.textSecondary; font.pixelSize: 12 }
                             Rectangle { x: -4; y: -4; width: 16; height: 16; radius: 8; color: Theme.danger; visible: parent.selected
                                 Text { anchors.centerIn: parent; text: "×"; color: Theme.text; font.pixelSize: 12 }
                                 MouseArea { anchors.fill: parent; onClicked: { root.pushUndo(); GridLayoutModel.save(GridLayoutModel.items.filter(i => i.id !== modelData.id)) } }
                             }
-                            MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton; drag.target: parent
+                            MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton; drag.target: parent
                                 onClicked: mouse => {
                                     parent.selected = true; selectedItem = modelData
-                                    if (mouse.button === Qt.RightButton) previewArea.openSizes(modelData, parent.x + mouse.x, parent.y + mouse.y)
-                                    else previewArea.sizeChoices = []
                                 }
                                 onReleased: {
-                                    const nx = Math.max(0, Math.round((parent.x - GridLayoutModel.pad) / GridLayoutModel.pitch))
-                                    const ny = Math.max(0, Math.round(parent.y / GridLayoutModel.pitch))
+                                    const nx = Math.max(0, Math.round((parent.x - previewArea.gridOffsetX - GridLayoutModel.pad) / GridLayoutModel.pitch))
+                                    const ny = Math.max(0, Math.round((parent.y - GridLayoutModel.pad) / GridLayoutModel.pitch))
                                     const next = GridLayoutModel.reflow(GridLayoutModel.items, modelData, {x:nx,y:ny}, GridLayoutModel.columns)
                                     if (next) { root.pushUndo(); GridLayoutModel.save(next) }
-                                    else { parent.x = GridLayoutModel.pad + modelData.x * GridLayoutModel.pitch; parent.y = modelData.y * GridLayoutModel.pitch; rejected = true; rejectedX = Math.min(width - 100, parent.x); rejectedY = Math.max(0, parent.y - 22); rejectTimer.restart() }
+                                    else { parent.x = previewArea.gridOffsetX + GridLayoutModel.pad + modelData.x * GridLayoutModel.pitch; parent.y = GridLayoutModel.pad + modelData.y * GridLayoutModel.pitch; rejected = true; rejectedX = Math.min(width - 100, parent.x); rejectedY = Math.max(0, parent.y - 22); rejectTimer.restart() }
                                 }
                             }
-                            MouseArea { x: parent.width - 18; y: parent.height - 18; width: 18; height: 18; acceptedButtons: Qt.LeftButton
-                                property real startX: 0; property real startY: 0
-                                onPressed: mouse => { startX = mouse.x; startY = mouse.y }
-                                onReleased: mouse => {
-                                    const nw=Math.max(1,Math.round(modelData.w+(mouse.x-startX)/GridLayoutModel.pitch));
-                                    const nh=Math.max(1,Math.round(modelData.h+(mouse.y-startY)/GridLayoutModel.pitch));
-                                    if (GridLayoutModel.sizeAllowed(modelData.id,modelData.kind,nw,nh)) root.resizeItem(modelData,nw,nh,modelData.kind)
+                            MouseArea {
+                                x: parent.width - 18; y: parent.height - 18; width: 18; height: 18
+                                acceptedButtons: Qt.LeftButton
+                                cursorShape: Qt.SizeFDiagCursor
+                                onPressed: mouse => {
+                                    parent.resizing = true
+                                    parent.resizeStartWidth = modelData.w
+                                    parent.resizeStartHeight = modelData.h
+                                    const point = mapToItem(previewArea, mouse.x, mouse.y)
+                                    parent.resizeStartX = point.x
+                                    parent.resizeStartY = point.y
                                 }
+                                onPositionChanged: mouse => {
+                                    if (!pressed) return
+                                    const point = mapToItem(previewArea, mouse.x, mouse.y)
+                                    parent.resizeWidth = Math.max(0.5, Math.min(GridLayoutModel.columns - modelData.x,
+                                        parent.resizeStartWidth + (point.x - parent.resizeStartX) / GridLayoutModel.pitch))
+                                    parent.resizeHeight = Math.max(0.5, Math.min(64 - modelData.y,
+                                        parent.resizeStartHeight + (point.y - parent.resizeStartY) / GridLayoutModel.pitch))
+                                }
+                                onReleased: {
+                                    parent.resizing = false
+                                    if (Math.abs(parent.resizeWidth - modelData.w) > 0.001 || Math.abs(parent.resizeHeight - modelData.h) > 0.001)
+                                        root.resizeItem(modelData, parent.resizeWidth, parent.resizeHeight, modelData.kind)
+                                }
+                                onCanceled: parent.resizing = false
                             }
                         } }
-                        Rectangle { visible: previewArea.sizeChoices.length > 0; x: previewArea.sizeMenuX; y: previewArea.sizeMenuY; width: 106; height: Math.min(150, previewArea.sizeChoices.length * 28 + 8); radius: 10; color: Theme.raised; border.width: 1; border.color: Theme.divider; z: 5
-                            Column { anchors.fill: parent; anchors.margins: 4; spacing: 2
-                                Repeater { model: previewArea.sizeChoices; delegate: Rectangle { required property var modelData; width: 98; height: 26; radius: 7; color: Theme.control
-                                    Text { anchors.centerIn: parent; text: modelData.label; color: Theme.text; font.pixelSize: 11 }
-                                    MouseArea { anchors.fill: parent; onClicked: { root.resizeItem(previewArea.sizeItem, modelData.w, modelData.h, modelData.kind); previewArea.sizeChoices = [] } }
-                                } }
-                            }
-                        }
                         Text { x: root.rejectedX; y: root.rejectedY; visible: rejected; text: "Doesn't fit here"; color: Theme.danger; font.pointSize: Theme.pt(10.5) }
                     }
                     Row { spacing: 6
@@ -257,15 +359,58 @@ FloatingWindow {
                     width: 1054; height: 60; radius: 12; color: Theme.group
                     Text { x: 15; y: 11; text: modelData.label; color: Theme.text; font.family: "Inter"; font.pixelSize: 12 }
                     Text { x: 15; y: 36; text: modelData.valueText; color: Theme.textSecondary; font.pointSize: Theme.pt(10.5) }
-                    Slider { x: 400; y: 17; width: 620; height: 4; value: (modelData.value - modelData.min) / (modelData.max - modelData.min); onMoved: root.write(modelData.path, modelData.min + value * (modelData.max - modelData.min)) }
+                    Slider { x: 400; y: 17; width: 620; height: Metrics.settingsSliderHitHeight; trackThickness: Metrics.sliderTrackThickness; value: (modelData.value - modelData.min) / (modelData.max - modelData.min); onMoved: nextValue => root.write(modelData.path, modelData.min + nextValue * (modelData.max - modelData.min)) }
                     Text { anchors.right: parent.right; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter; text: Math.round(modelData.value); color: Theme.textSecondary; font.pixelSize: 11 }
                 }
             }
             Rectangle { visible: root.page === "Appearance"; width: 1054; height: 480; color: Theme.group; radius: 12
                 Grid { anchors.centerIn: parent; columns: 4; spacing: 14
-                    Repeater { model: Themes.list; delegate: Rectangle { required property var modelData; width: 220; height: 86; radius: 12; color: Theme.card; border.width: Config.appearance.theme === modelData.name ? 2 : 0; border.color: Theme.accent
-                        Text { anchors.centerIn: parent; text: modelData.label; color: Theme.text; font.pixelSize: 14 }
-                        MouseArea { anchors.fill: parent; onClicked: Themes.apply(modelData.name) }
+                    Repeater { model: Themes.list; delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool applied: Config.appearance.theme === modelData.name
+                        width: 220; height: 86; radius: Metrics.themeCardRadius
+                        color: modelData.panel ?? Theme.panel
+                        border.width: applied ? 2 : 0
+                        border.color: modelData.accent ?? Theme.accent
+
+                        Row {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: 28 - Metrics.themeDot / 2
+                            spacing: Metrics.themeDotGap
+                            Repeater {
+                                model: modelData.preview ?? []
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    width: Metrics.themeDot; height: Metrics.themeDot
+                                    radius: width / 2
+                                    color: modelData
+                                }
+                            }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: 53
+                            text: modelData.label
+                            color: applied ? (modelData.text ?? Theme.text) : (modelData.textSecondary ?? Theme.textSecondary)
+                            font.family: "Inter"
+                            font.pixelSize: 12
+                            font.weight: applied ? Font.DemiBold : Font.Medium
+                        }
+                        Rectangle {
+                            x: parent.width - 12 - width / 2
+                            y: 10 - height / 2
+                            width: Metrics.themeMarker; height: Metrics.themeMarker
+                            radius: width / 2
+                            color: modelData.accent ?? Theme.accent
+                            visible: applied
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                Themes.apply(modelData.name)
+                            }
+                        }
                     } }
                 }
             }

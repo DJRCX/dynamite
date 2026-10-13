@@ -1,6 +1,7 @@
 import QtQuick
 import qs.components
 import qs.controlcenter
+import qs.state
 import qs.theme
 
 // 1×1 icon-only toggle. Lock is momentary.
@@ -27,5 +28,9 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: state.toggle()
+    }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: if (root.cid === "nightlight") Island.ccPage = "nightlight"
     }
 }

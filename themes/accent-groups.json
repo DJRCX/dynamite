@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {"id":"neutral","label":"Neutral","color":"#BDBDBD","saturationMax":0.18,"hueRanges":[]},
+    {"id":"red","label":"Red","color":"#E5534B","hueRanges":[[345,360],[0,15]]},
+    {"id":"orange","label":"Orange","color":"#F39C45","hueRanges":[[15,45]]},
+    {"id":"yellow","label":"Yellow","color":"#E0C45C","hueRanges":[[45,75]]},
+    {"id":"green","label":"Green","color":"#78B96F","hueRanges":[[75,150]]},
+    {"id":"teal","label":"Teal","color":"#49C4A1","hueRanges":[[150,195]]},
+    {"id":"blue","label":"Blue","color":"#6F9FE8","hueRanges":[[195,255]]},
+    {"id":"purple","label":"Purple","color":"#A982DE","hueRanges":[[255,300]]},
+    {"id":"pink","label":"Pink","color":"#D47AAE","hueRanges":[[300,345]]}
+  ]
+}

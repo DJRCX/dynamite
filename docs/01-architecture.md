@@ -16,18 +16,18 @@ Create everything under `dynamite/` at the repo root. Each subdirectory is impor
 dynamite/
 ├── shell.qml                  # ShellRoot: instantiates windows, IPC, lock, polkit, notifications
 ├── theme/
-│   ├── Theme.qml              # Singleton: active palette (from themes/*.json)
+│   ├── Theme.qml              # Singleton: active palette (rendered from Omarchy colors.toml)
 │   ├── Metrics.qml            # Singleton: sizes, radii, gaps (fixed design numbers)
 │   └── Motion.qml             # Singleton: spring tokens
 ├── config/
 │   └── Config.qml             # Singleton: user settings (FileView + JsonAdapter, live-saved)
 ├── themes/
-│   ├── horizon-mint.json      # default
-│   └── …                      # one JSON per theme (see 02-design-tokens.md)
+│   ├── horizon/colors.toml    # default Omarchy palette
+│   └── …                      # one Omarchy package per theme
 ├── services/                  # Singletons wrapping system state (08-services.md)
 │   ├── Niri.qml  Audio.qml  Battery.qml  Network.qml  Bluetooth.qml  Media.qml
 │   ├── Notifs.qml  Displays.qml  Brightness.qml  NightLight.qml  Apps.qml  Power.qml
-│   ├── Wallpaper.qml  TerminalThemes.qml  Wallhaven.qml  Clipboard.qml        # extras (10-extras.md)
+│   ├── Themes.qml  Wallpaper.qml  Wallhaven.qml  Clipboard.qml # extras (10-extras.md)
 │   ├── Keybinds.qml  kdl.js  PowerProfile.qml  Idle.qml  SysStats.qml  Weather.qml
 ├── state/
 │   └── Island.qml             # Singleton: the island state machine (below)
@@ -41,7 +41,7 @@ dynamite/
 │   └── panels/                # Content that lives inside an expanded island
 │       ├── CollapsedClock.qml  HoverClock.qml  Calendar.qml  MediaPlayer.qml
 │       ├── Launcher.qml  PowerMenu.qml  Osd.qml  Toast.qml  PolkitPrompt.qml  ThemePicker.qml
-│       └── WallpaperPicker.qml  ClipboardPanel.qml  KeybindsPanel.qml  WindowMenu.qml   # extras
+│       └── WallpaperPicker.qml  ClipboardPanel.qml  KeybindsPanel.qml  WindowMenu.qml # extras; separate from ThemePicker
 ├── controlcenter/
 │   ├── ControlCenter.qml      # grid host + page stack
 │   ├── GridLayoutModel.qml    # layout data (columns, items, sizes)
@@ -52,8 +52,7 @@ dynamite/
 ├── settings/
 │   ├── SettingsWindow.qml     # FloatingWindow
 │   └── pages/ …               # one file per sidebar entry
-├── scripts/                   # Dynamite's own helpers, e.g. palette.py (never call ../scripts)
-├── templates/                 # kitty.conf, foot.ini (terminal color templates)
+├── scripts/                   # theme_manager.py, theme_catalog.py (never call ../scripts)
 ├── systemd/                   # simple-bar.service, awww-daemon.service (final versions, Phase 18)
 ├── tlp/                       # simple-bar.conf (copied from ../tlp in Phase 16)
 ├── niri/                      # simple-bar.kdl: binds + window rules for the final setup
@@ -101,17 +100,17 @@ import QtQuick
 import Quickshell
 
 Singleton {
-    // collapsed | clock | calendar | media | cc | launcher | power | osd | toast | polkit | themes
-    // + extras: wallpapers | clipboard | keybinds | window
+    // collapsed | clock | calendar | media | cc | launcher | power | osd | toast | polkit | themes | wallpapers
+    // + extras: clipboard | keybinds | window
     property string mode: "collapsed"
     property string ccPage: "main"        // main | wifi | bluetooth | sound | display (+ battery | system)
     property string screenName: ""        // output the panel is open on (Niri focused output)
     property bool gameMode: false
     property bool editing: false          // CC layout editor active
 
-    // extras (wallpapers, clipboard, keybinds, window) join both lists when they're built
-    readonly property bool interactive: ["calendar","media","cc","launcher","power","polkit","themes"].includes(mode)
-    readonly property bool wantsKeyboard: ["launcher","power","polkit","themes","cc","calendar","media"].includes(mode)
+    // themes and wallpapers use separate picker panels over the shared catalog
+    readonly property bool interactive: ["calendar","media","cc","launcher","power","polkit","themes","wallpapers","clipboard","keybinds","window"].includes(mode)
+    readonly property bool wantsKeyboard: ["launcher","power","polkit","themes","wallpapers","clipboard","keybinds","window","cc","calendar","media"].includes(mode)
 
     function open(m) { … }   // applies priority rules below
     function close() { mode = "collapsed"; ccPage = "main" }
@@ -124,7 +123,7 @@ Singleton {
 | Mode | Island that expands | Others |
 |---|---|---|
 | `collapsed` | none | all three at rest |
-| `clock`, `calendar`, `launcher`, `power`, `osd`, `toast`, `polkit`, `themes`, and the extras `wallpapers`, `clipboard`, `keybinds`, `window` | **center** | album + status slide outwards (gap rule in `04-island.md`) |
+| `clock`, `calendar`, `launcher`, `power`, `osd`, `toast`, `polkit`, `themes`, `wallpapers`, `clipboard`, `keybinds`, `window` | **center** | album + status slide outwards (gap rule in `04-island.md`) |
 | `media` | **album** (grows leftwards from its right edge) | center + status stay collapsed |
 | `cc` | **status** (grows rightwards/down from its top-left corner) | album + center stay collapsed |
 
@@ -132,7 +131,7 @@ Singleton {
 
 1. `lock` (separate surface) beats everything.
 2. `polkit` preempts any mode and cannot be dismissed by the scrim; only Cancel/Esc/success close it.
-3. Interactive panels (`calendar`, `media`, `cc`, `launcher`, `power`, `themes`) replace each other immediately; the springs retarget mid-flight.
+3. Interactive panels (`calendar`, `media`, `cc`, `launcher`, `power`, `themes`, `wallpapers`) replace each other immediately; the springs retarget mid-flight.
 4. `osd` only shows when mode is `collapsed` or `clock`; it auto-returns to the previous mode after 1.6 s of no changes. When the CC is open, volume/brightness changes just move its sliders.
 5. `toast` shows when mode is `collapsed`/`clock`/`osd`, lasts 4 s, and queues otherwise. While the CC is open, new notifications appear in its notifications card instead. Focus mode (DND) suppresses toasts entirely.
 6. Hover: `collapsed → clock` after the pointer rests on the center island for 80 ms; `clock → collapsed` 120 ms after it leaves; `calendar → collapsed` 350 ms after it leaves.
@@ -192,8 +191,8 @@ binds {
     Mod+Shift+Ctrl+Q hotkey-overlay-title="Reload Shell" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "shell" "reload"; }
     Mod+N       hotkey-overlay-title="Control Center" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "cc"; }
     Mod+M       hotkey-overlay-title="Media"          { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "media"; }
-    Mod+Shift+T hotkey-overlay-title="Themes"         { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "themes"; }
-    Mod+Shift+W hotkey-overlay-title="Wallpapers"     { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "wallpapers"; }
+    Mod+3       hotkey-overlay-title="Themes"         { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "themes"; }
+    Mod+4       hotkey-overlay-title="Wallpapers"     { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "wallpapers"; }
     Mod+Shift+Space hotkey-overlay-title="Window Menu" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "window"; }
     Mod+G       hotkey-overlay-title="Game Mode"      { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "gamemode" "toggle"; }
     Mod+Comma   hotkey-overlay-title="Settings"       { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "settings" "open" "island"; }
@@ -259,6 +258,6 @@ The nested session shares your real session bus. These can only have one owner a
 |---|---|---|
 | `org.freedesktop.Notifications` | simple-bar's `NotificationServer` | Dynamite's server won't receive notifications. |
 | Polkit authentication agent | `polkit-gnome-authentication-agent-1` (started by the XDG autostart unit `app-org.gnome.PolkitGnomeAuthenticationAgent@autostart.service`). A second agent, `polkit-mate-authentication-agent-1`, is also launched by `spawn-at-startup` in `~/.config/niri/config.d/50-startup.kdl` and by its own XDG autostart entry; it loses the race. | Dynamite's `PolkitAgent` won't register. |
-| StatusNotifierWatcher (tray) | simple-bar | Not used by Dynamite. |
+| StatusNotifierWatcher (tray) | Dynamite (Quickshell) | Used by the Control Center background-app tray; avoid running another watcher alongside it. |
 
 Build those features against fake data (a `Notifs.debugInject()` IPC function and a `PolkitPrompt` preview mode), then verify them for real after the takeover in Phase 18, when the legacy bar is gone and both polkit agents are disabled (XDG autostart overrides with `Hidden=true` in `~/.config/autostart/`, and the `spawn-at-startup` line removed).

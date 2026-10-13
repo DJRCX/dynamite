@@ -14,5 +14,5 @@ Text {
     verticalAlignment: Text.AlignVCenter
 
     SystemClock { id: clock; precision: SystemClock.Minutes }
-    text: Qt.formatTime(clock.date, Config.clock.use24h ? "HH:mm" : "h:mm")
+    text: Qt.formatTime(clock.date, Config.clock.use24h ? "HH:mm" : "h:mm AP")
 }

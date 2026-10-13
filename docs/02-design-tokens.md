@@ -4,7 +4,7 @@ All values are at 1× scale on a 1920×1080 output. In Figma they live on **Foun
 
 ## Colors (`theme/Theme.qml`, default theme "Horizon Mint")
 
-`Theme` loads the active theme JSON from `themes/<Config.appearance.theme>.json` with `FileView` + `JsonAdapter` and exposes each key as a `color` property. Switching theme = changing `Config.appearance.theme`; every binding updates live.
+`Theme` loads the runtime JSON cache rendered from Omarchy `colors.toml` by `scripts/theme_manager.py`. The TOML package is the editable source; the JSON exists only for Quickshell's live color bindings.
 
 | Token | Hex | Used for |
 |---|---|---|
@@ -42,27 +42,13 @@ Derived colors (compute in `Theme`, never hard-code):
 | `mediaShade` | `Qt.alpha(Qt.rgba(accent.r*0.12, accent.g*0.12, accent.b*0.12, 1), 0.55)` (≈ `#0A1A15` for Horizon Mint) |
 | `mix(a, b, t)` | helper: `Qt.rgba(a.r+(b.r-a.r)*t, …)` — used to animate colors with springs (see `03-motion.md`) |
 
-### Other themes
+### Theme and wallpaper catalog
 
-The theme picker shows 19 themes (the screenshot shows `everforest`, `gruvbox`, `gruvbox-material`, `horizon`, `industrial`, position 8/19). Create one JSON per theme with the same keys. For named community palettes (Everforest, Gruvbox, Catppuccin, Tokyo Night, Nord, Rosé Pine, Kanagawa…), map their background ramp darkest→lightest onto `island`/`sidebar` → `window` → `track` → `panel` → `subpage` → `card` → `raised` → `chip`, their foreground onto `text`/`textSecondary`/`textMuted`, and their signature color onto `accent`. Keep `island` pure black in every theme; that's what makes the islands read as hardware.
+The theme picker and wallpaper picker are separate views over a shared catalog. Wallpapers ship under a theme package's `backgrounds/` folder; user-added and saved images live at `~/Pictures/Themes/<theme-name>/images/`. Switching a theme may select one of its backgrounds. Changing a background never changes the palette.
 
-A `wallpaper` theme generated from the current wallpaper is added later (Phase 13, `10-extras.md` §2). It lives in `~/.local/state/dynamite/themes/`, so `Theme` must look there after `themes/`.
+Themes follow the Omarchy flat `colors.toml` format. Install public packages with `dynamite-theme`; do not add a second theme format. The theme manager owns the documented app output files in `themes/README.md`.
 
-Theme JSON shape:
-
-```json
-{
-  "name": "horizon",
-  "label": "Horizon",
-  "accent": "#49E3AF", "accentContainer": "#205543", "onAccent": "#0B1A14",
-  "island": "#000000", "panel": "#181614", "subpage": "#1F1D1B", "card": "#262220",
-  "chip": "#322E2B", "raised": "#2A2623", "track": "#0D0B0A", "window": "#0A0806",
-  "sidebar": "#070707", "group": "#141110", "field": "#1C1916", "control": "#1A1816",
-  "switchOff": "#3B3734", "knob": "#F2EFEA", "text": "#EDE7DD", "textSecondary": "#A39B91",
-  "textMuted": "#6B655E", "danger": "#E5534B",
-  "preview": ["#49E3AF", "#181614", "#EDE7DD", "#E5534B"]
-}
-```
+Runtime cache files live in `~/.local/state/dynamite/themes/`; edit a package's `colors.toml` instead of editing the cache.
 
 ## Typography
 
@@ -173,7 +159,7 @@ island.stageLift            7       expanded islands sit this much lower (y = ga
 gameMode.barHeight          47
 gameMode.clusterGap         173     see 05-control-center.md → Game mode
 motion.*                            spring tokens, see 03-motion.md
-appearance.theme            "horizon"
+appearance.theme            "nord"
 appearance.wallpaper        ""      path; reuse the legacy config's wallpaper on first run
 clock.use24h                true    island shows "00:47"; lock screen shows "0:47"
 launcher.maxResults         6
@@ -189,17 +175,11 @@ lock.blur                   48
 Keys for the extras (`10-extras.md`), added in Phases 13–17. Values marked "legacy" are imported once from `../config.json`:
 
 ```text
-wallpaper.dir               "~/Pictures/Wallpapers"   legacy wallpaper_dir
+wallpaper.dir               "~/Pictures/Themes"       per-theme user background library
 wallpaper.current           {}      { "<output>": path, "*": path }; legacy wallpaper → "*"
 wallpaper.transition        "random"  random | fade | grow | wipe | wave | outer | left | right | top | bottom
 wallpaper.transitionSeconds 1.2
 wallpaper.slideshowMinutes  0       0 = off
-appearance.wallpaperMode    "pitch_black"   pitch_black | tinted (legacy theme_mode)
-appearance.wallpaperAccent  ""      chosen swatch for the wallpaper theme
-terminal.kitty              true
-terminal.foot               true
-terminal.opacity            0.8     legacy terminal_opacity
-terminal.background         "black" black | theme
 wallhaven.apiKey            ""
 wallhaven.purity            "100"   SFW
 wallhaven.categories        "110"   general + anime (legacy default)

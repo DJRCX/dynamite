@@ -31,7 +31,22 @@ Singleton {
         }
     }
 
-    function setEnabled(on: bool): void { if (adapter && !preview) adapter.enabled = on }
+    function setEnabled(on: bool): void {
+        if (!adapter || preview) return
+        if (on) unblockBluetooth.running = true
+        else adapter.enabled = false
+    }
+
+    // The adapter property cannot power on a controller while rfkill has it soft-blocked.
+    // Unblock first, then ask BlueZ to power the adapter on.
+    Process {
+        id: unblockBluetooth
+        command: ["/usr/bin/rfkill", "unblock", "bluetooth"]
+        onExited: (code) => {
+            if (code === 0 && root.adapter && !root.preview) root.adapter.enabled = true
+            else if (code !== 0) console.warn("[Dynamite] could not unblock Bluetooth", code)
+        }
+    }
     function busy(device: var): bool {
         return device.pairing || device.state === QsBluetooth.BluetoothDeviceState.Connecting
             || device.state === QsBluetooth.BluetoothDeviceState.Disconnecting

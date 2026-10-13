@@ -2,15 +2,41 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 Singleton {
     id: root
     property var workspaces: []
     property var windows: []
     property var focusedWindowId: null
+    property bool focusedFullscreen: false
     readonly property var focusedWorkspace: workspaces.find(ws => ws.is_focused) ?? null
     readonly property string focusedOutput: focusedWorkspace?.output ?? ""
     readonly property var focusedWindow: windows.find(w => w.id === focusedWindowId) ?? null
+
+    function isFullscreenOnOutput(win: var, output: string): bool {
+        if (!win) return false
+        return ToplevelManager.toplevels.values.some(top =>
+            top.fullscreen && top.appId === win.app_id && top.title === win.title
+            && top.screens.some(target => target.name === output))
+    }
+
+    function isFullscreen(win: var): bool {
+        if (!win) return false
+        const workspace = workspaces.find(ws => ws.id === win.workspace_id)
+        if (!workspace) return false
+        return isFullscreenOnOutput(win, workspace.output)
+    }
+
+    function isOutputFullscreen(output: string): bool {
+        const active = workspaces.find(ws => ws.output === output && ws.is_active)
+        if (!active) return false
+        return windows.some(win => win.workspace_id === active.id && isFullscreenOnOutput(win, output))
+    }
+
+    function updateFullscreen(win: var): void {
+        focusedFullscreen = win ? isFullscreen(win) : false
+    }
 
     function workspacesOn(output: string): var {
         return workspaces.filter(ws => ws.output === output).sort((a, b) => a.idx - b.idx)
@@ -23,6 +49,7 @@ Singleton {
     function handle(event: var): void {
         if (event.WorkspacesChanged) {
             workspaces = event.WorkspacesChanged.workspaces
+            updateFullscreen(focusedWindow)
         } else if (event.WorkspaceActivated) {
             const id = event.WorkspaceActivated.id
             const focused = event.WorkspaceActivated.focused
@@ -34,20 +61,24 @@ Singleton {
                 if (focused) copy.is_focused = ws.id === id
                 return copy
             })
+            updateFullscreen(focusedWindow)
         } else if (event.WindowsChanged) {
             windows = event.WindowsChanged.windows
             focusedWindowId = windows.find(w => w.is_focused)?.id ?? null
+            updateFullscreen(windows.find(w => w.id === focusedWindowId) ?? null)
         } else if (event.WindowOpenedOrChanged) {
             const win = event.WindowOpenedOrChanged.window
             const rest = windows.filter(w => w.id !== win.id)
             windows = rest.concat([win])
             if (win.is_focused) focusedWindowId = win.id
+            if (win.is_focused || win.id === focusedWindowId) updateFullscreen(win)
         } else if (event.WindowClosed) {
             const id = event.WindowClosed.id
             windows = windows.filter(w => w.id !== id)
-            if (focusedWindowId === id) focusedWindowId = null
+            if (focusedWindowId === id) { focusedWindowId = null; focusedFullscreen = false }
         } else if (event.WindowFocusChanged) {
             focusedWindowId = event.WindowFocusChanged.id
+            updateFullscreen(windows.find(w => w.id === focusedWindowId) ?? null)
         }
     }
 

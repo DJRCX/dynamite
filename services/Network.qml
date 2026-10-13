@@ -38,13 +38,12 @@ Singleton {
         if (wifi && wifi.scannerEnabled !== scanning) wifi.scannerEnabled = scanning
     }
 
-    function strengthIcon(strength: real): string {
-        return strength >= 0.75 ? "wifi" : strength >= 0.5 ? "network_wifi_3_bar"
-             : strength >= 0.25 ? "network_wifi_2_bar" : "network_wifi_1_bar"
-    }
+    // Keep the shell's Wi-Fi indicator visually stable while signal scans fluctuate.
+    // Signal strength remains available as a percentage in the network page.
+    function strengthIcon(strength: real): string { return "wifi" }
     readonly property string wifiIcon: wiredLink && !active ? "lan"
         : !wifiEnabled ? "wifi_off"
-        : active ? strengthIcon(active.signalStrength) : "signal_wifi_statusbar_not_connected"
+        : "wifi"
 
     function isOpen(network: var): bool {
         return network?.security === WifiSecurityType.Open || network?.security === WifiSecurityType.Owe

@@ -6,6 +6,12 @@ Dynamite is a Dynamic-Island style Quickshell shell for Niri: three black "islan
 
 This folder is the complete spec. It is written so that a coding agent (Codex) can build the shell phase by phase without seeing the original.
 
+> This guide began as a phased build specification. For the current implementation
+> and a summary of changes since the last GitHub push, see
+> [`changes-since-v2.0.0.md`](changes-since-v2.0.0.md). The phase documents below
+> retain historical design and acceptance details where they differ from the
+> current code.
+
 ## Sources of truth
 
 | What | Where |
@@ -15,6 +21,10 @@ This folder is the complete spec. It is written so that a coding agent (Codex) c
 | Author's walkthrough (behaviour + intent) | `/home/djrcx/Projects/figma/transcript-or-walkthrough-of-the-design.txt` |
 | Legacy features to rebuild | `10-extras.md` (and the legacy code itself: `../../shell.qml`, `../../scripts/`, read-only) |
 | This spec | `docs/*.md` |
+| Niri platform behavior and configuration | [`niri/README.md`](niri/README.md) and its linked official documentation |
+| Quickshell/QML APIs and integrations | [`quickshell/README.md`](quickshell/README.md) and its version-matched official documentation |
+
+The project spec documents Dynamite's intended behavior and design. For Niri and Quickshell syntax, API behavior, and platform semantics, use the official documentation linked from those two platform reference folders.
 
 When the spec and a screenshot disagree, the screenshot wins for looks and the spec wins for behaviour. Numbers in this spec were measured from the screenshots at 1× scale on a 1920×1080 output.
 
@@ -36,7 +46,7 @@ When the spec and a screenshot disagree, the screenshot wins for looks and the s
 | Phases | What |
 |---|---|
 | 1–12 | The Dynamite design from Figma |
-| 13–17 | Extras: wallpapers + terminal colors, Wallhaven, clipboard + cheatsheet, power profiles + caffeine + idle, system monitor + weather + window menu |
+| 13–17 | Extras: accent-grouped themes + wallpapers + terminal colors, Wallhaven, clipboard + cheatsheet, power profiles + caffeine + idle, system monitor + weather + window menu |
 | 18 | Takeover: legacy files deleted, `dynamite/` becomes the repo root (Codex prepares, you run it) |
 
 ## How to drive Codex with this

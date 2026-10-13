@@ -17,7 +17,6 @@ Singleton {
     property alias display: dataView.display
     property alias lock: dataView.lock
     property alias wallpaper: dataView.wallpaper
-    property alias terminal: dataView.terminal
     property alias wallhaven: dataView.wallhaven
     property alias clipboard: dataView.clipboard
     property alias power: dataView.power
@@ -95,10 +94,8 @@ Singleton {
                 property bool reduceMotion: false
             }
             property JsonObject appearance: JsonObject {
-                property string theme: "horizon"
+                property string theme: "nord"
                 property string wallpaper: ""
-                property string wallpaperMode: "pitch_black"
-                property string wallpaperAccent: ""
             }
             property JsonObject clock: JsonObject { property bool use24h: true }
             property JsonObject launcher: JsonObject { property int maxResults: 6 }
@@ -107,17 +104,11 @@ Singleton {
             property JsonObject display: JsonObject { property bool nightLight: false; property int nightLightTemp: 3700 }
             property JsonObject lock: JsonObject { property int blur: 48 }
             property JsonObject wallpaper: JsonObject {
-                property string dir: "~/Pictures/Wallpapers"
+                property string dir: "~/Pictures/Themes"
                 property var current: ({})
                 property string transition: "random"
                 property real transitionSeconds: 1.2
                 property int slideshowMinutes: 0
-            }
-            property JsonObject terminal: JsonObject {
-                property bool kitty: true
-                property bool foot: true
-                property real opacity: 0.8
-                property string background: "black"
             }
             property JsonObject wallhaven: JsonObject {
                 property string apiKey: ""
@@ -165,8 +156,6 @@ Singleton {
                 dataView.wallpaper.current = Object.assign({}, dataView.wallpaper.current, { "*": legacy.wallpaper })
             }
             if (legacy.wallpaper_dir) dataView.wallpaper.dir = legacy.wallpaper_dir
-            if (legacy.theme_mode) dataView.appearance.wallpaperMode = legacy.theme_mode
-            if (typeof legacy.terminal_opacity === "number") dataView.terminal.opacity = legacy.terminal_opacity
             if (typeof legacy.weather_lat === "number") dataView.weather.lat = legacy.weather_lat
             if (typeof legacy.weather_lon === "number") dataView.weather.lon = legacy.weather_lon
             if (legacy.weather_units === "fahrenheit" || legacy.weather_units === "celsius") dataView.weather.units = legacy.weather_units

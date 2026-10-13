@@ -5,7 +5,7 @@ import qs.services
 
 Singleton {
     id: root
-    // collapsed | clock | calendar | media | cc | launcher | power | osd | toast | polkit | themes
+    // collapsed | clock | calendar | media | cc | launcher | power | osd | toast | polkit | themes | wallpapers
     property string mode: "collapsed"
     property string ccPage: "main"
     // Output the panel is open on; "" means every output.

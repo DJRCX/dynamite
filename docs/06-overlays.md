@@ -83,12 +83,20 @@ During development the agent can't register (polkit-gnome owns it; see `01-archi
 
 ## Theme picker (`panels/ThemePicker.qml`) — 802 × 220
 
-Reference `0002-59`. Figma frame 22.
+Mod+3 opens the theme picker. It contains theme options only; wallpaper browsing is a separate mode on Mod+4.
 
-- Search row: `search` 14 px at (17, 21); "Search themes..." Regular 13 at (42, 20); counter "8/19" Regular 10 `textMuted` right-aligned at x 782.
-- **Carousel** at y 64 (height 106): theme cards 185 × 98 with 9 px gaps, horizontally scrolling, the selected card centered. Each card: a mini preview of the theme (its `island`/`panel` colors with an accent swatch row from `preview`), the name below (Medium 10, SemiBold for the selected one). The selected card has a 2 px `accent` outline. Cards at the edges are clipped by the island.
-- "Enter to apply" Regular 9.5 `textMuted` right-aligned at y 192.
-- ←/→ (or scroll) move the selection, and the carousel `contentX` springs (`panel`) to center it. Typing filters. Enter applies (`Config.appearance.theme = name`); everything recolors live with the `fade` spring on a full-screen color crossfade. Esc closes without applying.
+- Search row at y 12: `search` 14 px at x 15; "Search themes..." at x 42; filtered theme count at the right. Search matches theme name and label; there are no color-family filters here.
+- **Carousel** at y 52: theme cards 185 × 98 with 9 px gaps, horizontally scrolling with the selected card centered. Each previews its panel and `preview` colors, with a 2 px `accent` outline around the selection.
+- ←/→ or the wheel moves the selection. Enter or clicking a card applies the theme and automatically chooses a random wallpaper from its theme folder. The wallpaper and theme list share `services/Themes.qml` and `scripts/theme_catalog.py` for their catalog, while their picker views remain separate.
+- Esc closes the picker.
+
+## Wallpaper picker (`panels/WallpaperPicker.qml`) — 802 × 408
+
+Mod+4 opens wallpapers for the currently applied theme. The page does not offer accent-family choices; changing themes changes the theme folder shown here.
+
+- Header names the current theme and its accent family. Local lists shipped theme wallpapers and user-added images from `~/Pictures/Themes/<theme-name>/images/`; the search field filters local filenames. Online searches Wallhaven and supports Toplist, Hot, Latest, and Random sorting.
+- Horizontal gallery shows selectable wallpaper cards. Click or Enter applies a local wallpaper. In Online, Space previews temporarily, Enter keeps it in the active theme's image folder, and Esc reverts a preview or closes the picker.
+- ←/→ moves through cards when the gallery has keyboard focus; Tab or ↓ moves from search to the gallery. The picker reads the shared catalog but keeps wallpaper navigation separate from theme search.
 
 ## Lock screen (`lock/LockScreen.qml`)
 

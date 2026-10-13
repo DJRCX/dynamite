@@ -43,6 +43,8 @@ Item {
                     case "toggle": return toggleComponent
                     case "slider": return sliderComponent
                     case "notifications": return notificationsComponent
+                    case "tray": return trayComponent
+                    case "nowplaying": return nowPlayingComponent
                     default: return null
                     }
                 }
@@ -50,6 +52,8 @@ Item {
                 Component { id: toggleComponent; ToggleCircle { cid: cellLoader.modelData.id } }
                 Component { id: sliderComponent; SliderCard { cid: cellLoader.modelData.id } }
                 Component { id: notificationsComponent; NotificationsCard {} }
+                Component { id: trayComponent; TrayCard {} }
+                Component { id: nowPlayingComponent; NowPlayingCard {} }
             }
         }
     }
@@ -65,6 +69,7 @@ Item {
     Page { page: "bluetooth"; content: BluetoothPage {} }
     Page { page: "sound"; content: SoundPage {} }
     Page { page: "display"; content: DisplayPage {} }
+    Page { page: "nightlight"; content: NightLightPage {} }
     Page { page: "battery"; content: BatteryPage {} }
     Page { page: "system"; content: SystemPage {} }
 }

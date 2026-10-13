@@ -48,6 +48,7 @@ Rectangle {
         width: root.width - 18
         height: root.vertical ? root.height - 18 : 22
         vertical: root.vertical
+        showThumb: !root.vertical
         enabled: root.available
         opacity: root.available ? 1 : 0.4
         value: root.value

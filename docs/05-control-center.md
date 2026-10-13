@@ -23,7 +23,8 @@ The control center (CC) lives **inside the status island**: clicking the status 
   { "id": "nightlight",    "kind": "toggle",        "x": 6, "y": 1, "w": 1, "h": 1 },
   { "id": "sound",         "kind": "slider",        "x": 0, "y": 2, "w": 7, "h": 1 },
   { "id": "display",       "kind": "slider",        "x": 0, "y": 3, "w": 7, "h": 1 },
-  { "id": "notifications", "kind": "notifications", "x": 0, "y": 4, "w": 7, "h": 3 }
+  { "id": "notifications", "kind": "notifications", "x": 0, "y": 4, "w": 7, "h": 3 },
+  { "id": "tray",          "kind": "tray",          "x": 0, "y": 7, "w": 7, "h": 1 }
 ]
 ```
 
@@ -34,6 +35,7 @@ That's the default (the screenshot). Each control `id` declares which sizes it s
 | wifi, bluetooth, focus, gamemode, nightlight, lock | `toggle` 1×1, `tile` 2–4 × 1 | icon-only circle | icon circle + title + subtitle |
 | sound, display | `slider` 2–9 × 1, or 1×2…1×4 (vertical) | — | label + "more" chevron + slider; label hidden when width < 4 cells |
 | notifications | 4–9 × 2–5 | — | list |
+| tray | 3–9 × 1–2 | — | active background-app icons; click to activate the app |
 | nowplaying (optional, "Now Playing 3×2" in the editor) | 3×2 | — | mini player |
 
 Vertical sliders (1 × n) are allowed; the walkthrough shows dragging sound/display into tall iOS-style sliders.

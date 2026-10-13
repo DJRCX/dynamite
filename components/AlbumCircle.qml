@@ -11,12 +11,34 @@ ClippingRectangle {
     radius: width / 2
     color: Theme.panel
 
-    Image {
-        id: albumImage
+    ClippingRectangle {
         anchors.fill: parent
-        source: Media.activePlayer?.trackArtUrl ?? ""
-        fillMode: Image.PreserveAspectCrop
-        visible: status === Image.Ready
+        anchors.margins: Metrics.albumBorderWidth
+        radius: width / 2
+        color: Theme.panel
+
+        Image {
+            id: albumImage
+            anchors.fill: parent
+            source: Media.activePlayer?.trackArtUrl ?? ""
+            fillMode: Image.PreserveAspectCrop
+            visible: status === Image.Ready
+        }
+
+        Icon {
+            anchors.centerIn: parent
+            name: "music_note"
+            size: Metrics.iconMd
+            visible: !Media.activePlayer || albumImage.status !== Image.Ready
+        }
     }
-    Icon { anchors.centerIn: parent; name: "music_note"; size: Metrics.iconMd; visible: !Media.activePlayer || albumImage.status !== Image.Ready }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: width / 2
+        color: "transparent"
+        border.width: Metrics.albumBorderWidth
+        border.color: Theme.textMuted
+        z: 1
+    }
 }

@@ -11,7 +11,7 @@ import qs.state
 
 ShellRoot {
     // Singletons start lazily; touch the ones that must run from startup (servers, IPC, watchers).
-        Component.onCompleted: [Niri.focusedOutput, Notifs.dnd, Brightness.dryRun, NightLight.enabled, Audio.volume, Bluetooth.enabled, Idle.caffeine, TerminalThemes.kittyTemplate,
+        Component.onCompleted: [Niri.focusedOutput, Notifs.dnd, Brightness.dryRun, NightLight.enabled, Audio.volume, Bluetooth.enabled, Idle.caffeine, Themes.list,
                             Polkit.registered, Overlays.osdKind, Lock.locked, PowerProfile.current]
 
     LockScreen {}
@@ -70,7 +70,7 @@ ShellRoot {
     }
     IpcHandler {
         target: "settings"
-        function open(page: string): void { settingsWindow.page = page; settingsWindow.visible = true }
+        function open(page: string): void { settingsWindow.reopen(page) }
     }
     IpcHandler {
         target: "wallpaper"

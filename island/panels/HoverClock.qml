@@ -21,7 +21,7 @@ Item {
         y: 24
         spacing: 7
         Text {
-            text: Qt.formatTime(clock.date, Config.clock.use24h ? "HH:mm" : "h:mm")
+            text: Qt.formatTime(clock.date, Config.clock.use24h ? "HH:mm" : "h:mm AP")
             color: Theme.text
             font.family: Theme.fonts.hoverClock.family
             font.weight: Theme.fonts.hoverClock.weight
@@ -58,9 +58,9 @@ Item {
                 d.setDate(d.getDate() + offset)
                 return d
             }
-            readonly property bool sunday: day.getDay() === 0
+            readonly property bool weekend: Metrics.weekendDays.includes(day.getDay())
             readonly property real fade: root.falloff[index]
-            readonly property color tone: today ? Theme.accent : sunday ? Theme.danger : Theme.text
+            readonly property color tone: today ? Theme.accent : weekend ? Theme.danger : Theme.text
 
             x: root.width / 2 + offset * 28 - width / 2
             y: 57
@@ -73,7 +73,7 @@ Item {
                 anchors.verticalCenterOffset: 11
                 text: column.today ? Qt.locale("en_US").dayName(column.day.getDay(), Locale.ShortFormat).toUpperCase()
                                    : root.letters[column.day.getDay()]
-                color: column.today ? Theme.text : column.sunday ? Theme.danger : Theme.text
+                color: column.today ? Theme.text : column.weekend ? Theme.danger : Theme.text
                 opacity: column.today ? 1 : column.fade * 0.6
                 font.family: "Inter"
                 font.weight: column.today ? Font.Bold : Font.Medium

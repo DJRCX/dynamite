@@ -20,6 +20,7 @@ Singleton {
     property string pendingUrl: ""
     property string pendingPath: ""
     property string pendingAction: ""
+    property string pendingTheme: ""
 
     function search(searchText: string, sortBy: string, addResults: bool): void {
         if (loading) return
@@ -64,16 +65,12 @@ Singleton {
         previousWallpaper = ""
         pendingAction = ""
     }
-    function keep(item: var): void {
+    function keep(item: var, themeName: string): void {
         if (!item) return
-        const directory = wallpaperDir()
-        const path = directory + "/wallhaven-" + safeId(item.id) + extension(item.path)
+        if (mkdir.running || download.running || categorize.running) return
+        pendingTheme = themeName
+        const path = previewDir() + "/keep-" + safeId(item.id) + extension(item.path)
         startDownload(sourceUrl(item, true), path, "keep")
-    }
-    function wallpaperDir(): string {
-        const override = Quickshell.env("DYNAMITE_WALLPAPER_DIR")
-        if (override) return override
-        return Config.wallpaper.dir.replace(/^~/, Quickshell.env("HOME"))
     }
     function previewDir(): string { return Quickshell.env("HOME") + "/.cache/dynamite/wallhaven" }
     function safeId(value: string): string { return String(value).replace(/[^A-Za-z0-9_-]/g, "_") }
@@ -83,6 +80,7 @@ Singleton {
     }
     function startDownload(url: string, path: string, action: string): void {
         pendingUrl = url; pendingPath = path; pendingAction = action
+        if (action !== "keep") pendingTheme = ""
         mkdir.command = ["mkdir", "-p", path.substring(0, path.lastIndexOf("/"))]
         mkdir.running = true
     }
@@ -103,11 +101,32 @@ Singleton {
             root.error = ""
             if (root.pendingAction === "preview") Wallpaper.set(root.pendingPath, "")
             else if (root.pendingAction === "keep") {
-                Wallpaper.set(root.pendingPath, "")
-                root.previewing = false
-                root.previousWallpaper = ""
+                categorize.exec(["python3", Quickshell.shellDir + "/scripts/theme_manager.py", "add-background",
+                                 root.pendingTheme, root.pendingPath])
+                return
             }
             root.pendingAction = ""
         }
+    }
+    Process {
+        id: categorize
+        command: ["true"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const path = text.trim()
+                    if (!path) throw new Error("empty saved path")
+                    Wallpaper.set(path, "")
+                    root.previewing = false
+                    root.previousWallpaper = ""
+                    root.pendingAction = ""
+                    root.pendingTheme = ""
+                    Themes.refresh()
+                } catch (error) {
+                    root.error = "Could not save the downloaded wallpaper"
+                }
+            }
+        }
+        onExited: (code) => { if (code !== 0) root.error = "Could not save the downloaded wallpaper" }
     }
 }

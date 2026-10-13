@@ -7,6 +7,7 @@ Singleton {
     readonly property real expandedGap: 18.5
     readonly property int mediaGap: 15
     readonly property int circle: 33
+    readonly property int albumBorderWidth: 4
     readonly property int albumWidth: 410
     readonly property int albumHeight: 213
     readonly property int launcherPlaceholderHeight: 366
@@ -44,7 +45,20 @@ Singleton {
     readonly property int launcherCategoryY: 19
     readonly property int launcherCategoryWidth: 117
     readonly property int launcherCategoryHeight: 26
+    readonly property int keybindPanelWidth: 514
+    readonly property int keybindPanelHeight: 500
+    readonly property int keybindSearchHeight: 36
+    readonly property int keybindListTop: 58
+    readonly property int keybindDividerHeight: 1
+    readonly property int keybindRowHeight: 42
+    readonly property int keybindRowGap: 3
+    readonly property int keybindKeyHeight: 22
+    readonly property int keybindKeyRadius: 6
+    readonly property int keybindKeyPad: 6
+    readonly property int keybindMaxRows: 9
     // Theme picker carousel: cards 185 × 98, 9 px apart; the selected one lifts 8 px.
+    readonly property int themePickerHeight: 220
+    readonly property int wallpaperPickerHeight: 408
     readonly property int themeCardWidth: 185
     readonly property int themeCardHeight: 98
     readonly property int themeCardGap: 9
@@ -61,4 +75,30 @@ Singleton {
     readonly property int iconMd: 17
     readonly property int iconLg: 21
     readonly property int iconXs: 12
+    readonly property int settingsGroupWidth: 1054
+    readonly property int settingsCardRadius: 12
+    readonly property int settingsInset: 16
+    readonly property int settingsClockCardHeight: 106
+    readonly property int settingsFormatOptionWidth: 118
+    readonly property int settingsFormatOptionHeight: 34
+    readonly property int settingsFormatOptionGap: 8
+    readonly property int sliderTrackThickness: 4
+    readonly property int sliderThumbDiameter: 16
+    readonly property int settingsSliderHitHeight: 24
+    readonly property real batteryGlowWidth: ringWidth * 3
+    readonly property int batteryGlowBlur: 12
+    readonly property int clipboardThumbSize: 28
+    readonly property int clipboardThumbRadius: 5
+    readonly property int clipboardPreviewHeight: 100
+    readonly property int clipboardRowHeight: 47
+    readonly property int clipboardExpandedHeight: 160
+    readonly property int clipboardExpandedExtra: 113
+    readonly property int weatherStripInsetX: 10
+    readonly property int weatherCurrentWidth: 112
+    readonly property int weatherDayCount: 5
+    readonly property int weatherOverviewGap: 2
+    readonly property int weatherHourlyInsetX: 8
+    readonly property int weatherHourlyGap: 3
+    readonly property int weatherHourCount: 12
+    readonly property var weekendDays: [5, 6]
 }

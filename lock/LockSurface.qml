@@ -130,7 +130,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             y: (Config.weather.onLockScreen ? 158 : 139) - Metrics.lockSlide * (1 - root.appear)
             px: 150; weight: Font.DemiBold
-            text: Qt.formatTime(clock.date, Config.clock.use24h ? "H:mm" : "h:mm")
+            text: Qt.formatTime(clock.date, Config.clock.use24h ? "H:mm" : "h:mm AP")
         }
 
         Rectangle {

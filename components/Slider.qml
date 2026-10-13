@@ -6,6 +6,7 @@ Item {
     id: root
     property real value: 0
     property bool vertical: false
+    property bool showThumb: true
     property string icon: ""
     property color trackColor: Theme.track
     property color fillColor: Theme.accent
@@ -14,22 +15,26 @@ Item {
     signal moved(real value)
     signal released()
 
-    readonly property real thickness: vertical ? width : height
+    property real trackThickness: vertical ? width : height
+    readonly property real thickness: trackThickness
     readonly property real length: vertical ? height : width
     property real shown: dragging ? drag.dragValue : value
     Behavior on shown { enabled: !root.dragging; Spring { token: Motion.panel; epsilon: 0.001 } }
     readonly property real fillLength: thickness + Math.max(0, Math.min(1, shown)) * (length - thickness)
 
     Rectangle {
-        anchors.fill: parent
+        x: root.vertical ? (root.width - root.thickness) / 2 : 0
+        y: root.vertical ? 0 : (root.height - root.thickness) / 2
+        width: root.vertical ? root.thickness : root.width
+        height: root.vertical ? root.height : root.thickness
         radius: root.thickness / 2
         color: root.trackColor
     }
     Rectangle {
         x: 0
-        y: root.vertical ? root.height - height : 0
+        y: root.vertical ? root.height - height : (root.height - root.thickness) / 2
         width: root.vertical ? root.width : root.fillLength
-        height: root.vertical ? root.fillLength : root.height
+        height: root.vertical ? root.fillLength : root.thickness
         radius: root.thickness / 2
         color: root.fillColor
 
@@ -42,6 +47,21 @@ Item {
             x: root.vertical ? (parent.width - width) / 2 : root.thickness / 2 - width / 2 + 2
             y: root.vertical ? parent.height - root.thickness / 2 - height / 2 : (parent.height - height) / 2
         }
+    }
+
+    Rectangle {
+        readonly property real center: root.vertical
+            ? root.height - root.fillLength + root.thickness / 2
+            : root.fillLength - root.thickness / 2
+        visible: root.showThumb
+        x: root.vertical ? (root.width - width) / 2 : center - width / 2
+        y: root.vertical ? center - height / 2 : (root.height - height) / 2
+        width: Metrics.sliderThumbDiameter
+        height: Metrics.sliderThumbDiameter
+        radius: width / 2
+        color: Theme.knob
+        border.width: 1
+        border.color: root.fillColor
     }
 
     MouseArea {

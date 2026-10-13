@@ -34,7 +34,9 @@ Item {
 
     function move(delta: int): void {
         if (rows.length === 0) return
-        list.currentIndex = Math.max(0, Math.min(rows.length - 1, list.currentIndex + delta))
+        const next = Math.max(0, Math.min(rows.length - 1, list.currentIndex + delta))
+        list.currentIndex = next
+        list.positionViewAtIndex(next, ListView.Contain)
     }
     function cycleCategory(delta: int): void {
         const index = Apps.categories.indexOf(activeCategory)

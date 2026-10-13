@@ -17,7 +17,7 @@ Each service is a `Singleton` in `dynamite/services/`. UI code reads properties 
 | `Apps` | `DesktopEntries` | `search(q)`, `launch(entry)` |
 | `Power` | `systemctl`, `niri msg`, `tlpctl` | `suspend()`, `reboot()`, `poweroff()`, `logout()`, `setProfile()` |
 | `Lock` | — | `locked` (bound by `WlSessionLock`) |
-| Extras (Phases 13–17) | see `10-extras.md` | `Wallpaper`, `TerminalThemes`, `Wallhaven`, `Clipboard`, `Keybinds`, `PowerProfile`, `Idle`, `SysStats`, `Weather` |
+| Extras (Phases 13–17) | see `10-extras.md` | `Themes`, `Wallpaper`, `Wallhaven`, `Clipboard`, `Keybinds`, `PowerProfile`, `Idle`, `SysStats`, `Weather` |
 
 ## Niri
 

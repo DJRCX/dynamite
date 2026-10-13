@@ -11,29 +11,32 @@ import qs.theme
 
 PanelWindow {
     id: root
+    visible: !root.fullscreenSuppressed
     anchors { top: true; left: true; right: true }
     implicitWidth: screen.width
     implicitHeight: Metrics.windowHeight
     color: "transparent"
-    exclusiveZone: game ? Config.gameMode.barHeight : Config.island.gap + Config.island.barHeight
+    exclusiveZone: root.outputFullscreen ? 0 : game ? Config.gameMode.barHeight : Config.island.gap + Config.island.barHeight
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "dynamite-island"
-    WlrLayershell.keyboardFocus: !onThisScreen ? WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: root.fullscreenSuppressed || !onThisScreen ? WlrKeyboardFocus.None
         : Island.exclusiveKeyboard ? WlrKeyboardFocus.Exclusive
         : Island.wantsKeyboard ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     readonly property string mode: Island.modeOn(screen.name)
     readonly property bool onThisScreen: mode === Island.mode
     readonly property bool game: Island.gameMode
+    readonly property bool outputFullscreen: Niri.isOutputFullscreen(screen.name)
+    readonly property bool fullscreenSuppressed: root.outputFullscreen && Island.mode !== "osd"
     // Top of an expanded panel: below the islands, or below the game bar.
     readonly property real stageTop: game ? Config.gameMode.barHeight + Config.island.stageLift
         : Config.island.gap + Config.island.stageLift
 
     mask: Region {
-        Region { item: gameBar }
-        Region { item: albumIsland }
-        Region { item: centerIsland }
-        Region { item: statusIsland }
+        Region { item: root.outputFullscreen ? null : gameBar }
+        Region { item: root.outputFullscreen ? null : albumIsland }
+        Region { item: root.fullscreenSuppressed ? null : root.onThisScreen ? centerIsland : null }
+        Region { item: root.outputFullscreen ? null : statusIsland }
     }
     IdleInhibitor { window: root; enabled: Idle.caffeine }
 
@@ -46,8 +49,7 @@ PanelWindow {
         case "osd": return 280
         case "toast": return 450
         case "polkit": return 430
-        case "themes": return 802
-        case "wallpapers": return 802
+        case "themes": case "wallpapers": return 802
         case "clipboard": case "keybinds": case "window": return 514
         default: return game ? 0 : Config.island.collapsedWidth
         }
@@ -61,10 +63,10 @@ PanelWindow {
         case "osd": return 44
         case "toast": return 67
         case "polkit": return 266
-        case "themes": return 220
-        case "wallpapers": return 296
+        case "themes": return Metrics.themePickerHeight
+        case "wallpapers": return Metrics.wallpaperPickerHeight
         case "clipboard": return Island.clipboardHeight
-        case "keybinds": return 500
+        case "keybinds": return Metrics.keybindPanelHeight
         case "window": return 370 + WindowMenu.desktopActions.length * (Metrics.rowHeight + 5)
             + (WindowMenu.outputs.length > 1 ? Metrics.rowHeight + 5 : 0)
             + (WindowMenu.expanded === "workspace" ? Math.min(210, WindowMenu.targetWorkspaces.length * 37)
@@ -90,6 +92,23 @@ PanelWindow {
     Connections {
         target: Island
         function onFocusRequested() { keys.forceActiveFocus() }
+        function onModeChanged() {
+            if (root.onThisScreen && ["calendar", "media", "cc"].includes(Island.mode))
+                Qt.callLater(() => keys.forceActiveFocus())
+        }
+    }
+
+    // Panel content can contain controls that take focus (for example the
+    // clipboard search or Wi-Fi password field). Keep Escape available to the
+    // whole island window instead of relying on the background keys item.
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.ApplicationShortcut
+        enabled: root.onThisScreen && Island.mode !== "collapsed"
+        onActivated: {
+            if (Island.mode === "polkit") Polkit.cancel()
+            else Island.close()
+        }
     }
 
     Item {
@@ -143,6 +162,7 @@ PanelWindow {
 
     SpringRect {
         id: centerIsland
+        visible: !root.fullscreenSuppressed
         heightToken: root.launcherSettled || (root.mode === "window" && WindowMenu.expanded !== "") ? Motion.panel : Motion.island
         tx: (root.width - root.centerWidth()) / 2
         ty: root.centerY()
@@ -224,18 +244,17 @@ PanelWindow {
             content: PolkitPrompt {}
         }
         PanelSlot {
-            width: 802
-            height: 220
+            width: 802; height: Metrics.themePickerHeight
             shown: root.mode === "themes"
             content: ThemePicker {}
         }
         PanelSlot {
-            width: 802; height: 296
+            width: 802; height: Metrics.wallpaperPickerHeight
             shown: root.mode === "wallpapers"
             content: WallpaperPicker {}
         }
         PanelSlot { width: 514; height: 380; shown: root.mode === "clipboard"; content: ClipboardPanel {} }
-        PanelSlot { width: 514; height: 500; shown: root.mode === "keybinds"; content: KeybindsPanel {} }
+        PanelSlot { width: Metrics.keybindPanelWidth; height: Metrics.keybindPanelHeight; shown: root.mode === "keybinds"; content: KeybindsPanel {} }
         PanelSlot { width: 514; height: root.centerHeight(); shown: root.mode === "window"; content: WindowMenuPanel {} }
     }
 
@@ -247,7 +266,7 @@ PanelWindow {
         Behavior on height { Spring { token: Motion.island } }
         color: Theme.island
         clip: true
-        visible: height > 0.5
+        visible: height > 0.5 && !root.outputFullscreen
 
         Item {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -257,7 +276,7 @@ PanelWindow {
                 anchors.centerIn: parent
                 px: 15; weight: Font.DemiBold
                 SystemClock { id: gameClock; precision: SystemClock.Minutes }
-                text: Qt.formatTime(gameClock.date, Config.clock.use24h ? "HH:mm" : "h:mm")
+                text: Qt.formatTime(gameClock.date, Config.clock.use24h ? "HH:mm" : "h:mm AP")
             }
             AlbumCircle {
                 x: parent.width / 2 - Config.gameMode.clusterGap - width / 2
@@ -284,6 +303,7 @@ PanelWindow {
 
     SpringRect {
         id: albumIsland
+        visible: !root.outputFullscreen
         readonly property bool shown: (Media.activePlayer !== null || !Config.island.albumCircleWhilePlaying) && !Island.gameMode
         springX: false
         readonly property bool expanded: root.mode === "media"
@@ -324,6 +344,7 @@ PanelWindow {
 
     SpringRect {
         id: statusIsland
+        visible: !root.outputFullscreen
         readonly property bool shown: Config.island.statusCircle && !Island.gameMode
         springX: false
         readonly property bool expanded: root.mode === "cc"

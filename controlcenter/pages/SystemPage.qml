@@ -2,6 +2,7 @@ import QtQuick
 import qs.components
 import qs.config
 import qs.services
+import qs.state
 import qs.theme
 
 Item {
@@ -13,7 +14,15 @@ Item {
     Component.onDestruction: SysStats.visible = false
     Column {
         x: 22; y: 18; width: 470; spacing: 8
-        Text { text: "‹    System"; color: Theme.text; font.pixelSize: 15 }
+        Row {
+            width: parent.width; height: 24; spacing: 13
+            Rectangle {
+                width: 24; height: 24; radius: 12; color: Theme.raised
+                Icon { anchors.centerIn: parent; name: "chevron_left"; size: Metrics.iconXs; color: Theme.textSecondary }
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Island.ccPage = "main" }
+            }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: "System"; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold }
+        }
         Repeater {
             model: [{name:"CPU",value:SysStats.cpu,history:SysStats.history},{name:"Memory",value:SysStats.memory,history:SysStats.memoryHistory},{name:"Temperature",value:SysStats.temperature,history:SysStats.temperatureHistory}]
             delegate: Rectangle {
