@@ -14,6 +14,21 @@ confirm() {
     [[ "$answer" == "y" || "$answer" == "Y" ]]
 }
 show_status() { git -C "$ROOT" status --short; }
+NIRI_TRANSACTION_ACTIVE=false
+NIRI_BACKUP_FILES=()
+NIRI_NEW_INCLUDE=""
+
+restore_niri_transaction() {
+    [[ "$NIRI_TRANSACTION_ACTIVE" == true ]] || return 0
+    local file
+    for file in "${NIRI_BACKUP_FILES[@]}"; do
+        [[ -f "$file.pre-dynamite" ]] && cp -p "$file.pre-dynamite" "$file"
+    done
+    [[ -n "$NIRI_NEW_INCLUDE" ]] && rm -f "$NIRI_NEW_INCLUDE"
+    NIRI_TRANSACTION_ACTIVE=false
+}
+trap restore_niri_transaction EXIT
+trap 'exit 130' INT TERM
 
 prepare() {
     local status current head temp worktree entry force=false
@@ -114,12 +129,19 @@ PLAN
     binds="$niri_dir/config.d/70-binds.kdl"
     config="$niri_dir/config.kdl"
     startup="$niri_dir/config.d/50-startup.kdl"
+    local include_file="$niri_dir/config.d/75-simple-bar.kdl"
+    [[ ! -e "$include_file" ]] || die "Niri snippet already exists: $include_file"
+    for file in "$binds" "$config" "$startup"; do
+        [[ ! -f "$file" || ! -e "$file.pre-dynamite" ]] || die "backup already exists: $file.pre-dynamite"
+    done
+    NIRI_TRANSACTION_ACTIVE=true
+    NIRI_NEW_INCLUDE="$include_file"
     for file in "$binds" "$config" "$startup"; do
         [[ -f "$file" ]] || continue
-        [[ ! -e "$file.pre-dynamite" ]] || die "backup already exists: $file.pre-dynamite"
         cp -p "$file" "$file.pre-dynamite"
+        NIRI_BACKUP_FILES+=("$file")
     done
-    cp "$ROOT/niri/simple-bar.kdl" "$niri_dir/config.d/75-simple-bar.kdl"
+    cp "$ROOT/niri/simple-bar.kdl" "$include_file"
     python3 - "$binds" <<'PY'
 import pathlib,re,sys
 p=pathlib.Path(sys.argv[1]); lines=p.read_text().splitlines(True)
@@ -150,15 +172,15 @@ PY
     for file in "$binds" "$config" "$startup"; do [[ -f "$file.pre-dynamite" ]] && diff -u "$file.pre-dynamite" "$file" || true; done
     if ! confirm "Keep these Niri changes?"; then
         for file in "$binds" "$config" "$startup"; do [[ -f "$file.pre-dynamite" ]] && cp -p "$file.pre-dynamite" "$file"; done
-        rm -f "$niri_dir/config.d/75-simple-bar.kdl"
+        rm -f "$include_file"
+        NIRI_TRANSACTION_ACTIVE=false
         echo "Niri changes restored; the repository merge and systemd enablement remain applied."
         return
     fi
     if ! niri validate -c "$config"; then
-        for file in "$binds" "$config" "$startup"; do [[ -f "$file.pre-dynamite" ]] && cp -p "$file.pre-dynamite" "$file"; done
-        rm -f "$niri_dir/config.d/75-simple-bar.kdl"
         die "Niri validation failed; original configuration restored"
     fi
+    NIRI_TRANSACTION_ACTIVE=false
     if [[ -f /etc/tlp.d/90-simple-bar.conf ]] && ! cmp -s "$ROOT/tlp/simple-bar.conf" /etc/tlp.d/90-simple-bar.conf; then
         echo "TLP file differs. If desired, install manually with: sudo install -m 0644 '$ROOT/tlp/simple-bar.conf' /etc/tlp.d/90-simple-bar.conf"
     fi
@@ -169,6 +191,13 @@ CHECKLIST
 }
 
 rollback() {
+    local status
+    status="$(git -C "$ROOT" status --porcelain)"
+    if [[ -n "$status" ]]; then
+        echo "Rollback requires a clean working tree; refusing to discard local changes:" >&2
+        show_status >&2
+        return 1
+    fi
     echo "Rollback will reset the checkout to pre-dynamite and restore prepared user-config backups."
     confirm "Continue with rollback?" || { echo "Cancelled."; return; }
     git -C "$ROOT" reset --hard pre-dynamite

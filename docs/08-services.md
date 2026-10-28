@@ -89,10 +89,21 @@ NotificationServer {
 
 ## Displays (Niri outputs)
 
-- Read: `niri msg -j outputs` → object keyed by connector name. Use `name`, `make`, `model`, `modes[]` (`width`, `height`, `refresh_rate` in mHz), `current_mode` (index), `logical.scale`. Refresh on `OutputsChanged`-style events or when the Display page opens.
+- Read: `niri msg -j outputs` → object keyed by connector name. Use `name`, `make`, `model`, `modes[]` (`width`, `height`, `refresh_rate` in mHz), `current_mode`, and `logical` (`x`, `y`, logical `width`/`height`, `scale`, `transform`). Disabled outputs have no current mode/logical geometry; retain their arrangement in Dynamite settings. Niri's current event stream has no output-change event, so refresh every four seconds.
 - Mode: `niri msg output <name> mode <W>x<H>@<Hz>` (Hz with 3 decimals, from `refresh_rate / 1000`).
 - Scale: `niri msg output <name> scale <s>`.
-- These are runtime changes. To persist them, write an `output "<name>" { mode "…"; scale …; }` block to `~/.config/niri/config.d/60-dynamite-outputs.kdl`, but only if the user's `config.kdl` already includes `config.d/*.kdl` (check first; never edit their main config).
+- Position: `niri msg output <name> position set <x> <y>` in logical pixels. Enable/disable: `niri msg output <name> on|off`. Niri applies these at runtime; Dynamite stores its layout in `Config.display.outputLayout` and reapplies it after settings and outputs load. Startup priority focuses one output through Niri IPC; Niri has no primary-output property.
+- Niri has no native output mirroring. Its documented `wl-mirror` workaround shows a source output in a window, not as a mirrored hardware output; the Control Center explains this instead of exposing a misleading toggle.
+
+## Audio hardware profiles
+
+- `Audio.outputs`/`inputs` list active PipeWire nodes. A card may have other available outputs hidden by its active profile (for example HDMI while analog is selected).
+- Read profiles and routes with `pactl --format=json list cards`; choose profiles with `pactl set-card-profile <card> <profile>`. Refresh PipeWire nodes after a profile change so newly created sinks/sources become selectable. Keep calls argv-based and dry-run them under `DYNAMITE_DEV=1`.
+
+## Wallpaper startup
+
+- `awww-daemon.service` is ordered after and requires `graphical-session.target`; do not start it from Niri `spawn-at-startup`, which can race the session environment/socket. Niri's session startup imports its environment into the systemd user manager.
+- After `awww query` succeeds, replay the saved wildcard wallpaper, then saved per-output overrides. Poll Niri outputs for new connectors and apply their saved wallpaper or the wildcard. Preserve disconnected-output assignments without attempting to set them.
 
 ## Brightness — the smooth ramp
 

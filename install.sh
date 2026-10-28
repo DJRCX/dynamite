@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 missing=()
-for bin in qs niri awww cliphist wl-copy wl-paste wtype tlpctl brightnessctl ddcutil wlsunset curl git python3; do
+for bin in qs niri awww cliphist wl-copy wl-paste wtype tlpctl brightnessctl ddcutil wlsunset pactl curl git python3; do
     command -v "$bin" >/dev/null 2>&1 || missing+=("$bin")
 done
 if ((${#missing[@]})); then

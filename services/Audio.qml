@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Services.Pipewire
 
 Singleton {
@@ -17,6 +18,8 @@ Singleton {
     readonly property var inputs: nodes.filter(n => n.audio && !n.isSink && !n.isStream)
     // App playback streams (Quickshell types these as AudioOutStream, which carries the Sink flag).
     readonly property var streams: nodes.filter(n => n.audio && n.type === PwNodeType.AudioOutStream)
+    property var cards: []
+    readonly property bool dryRun: Quickshell.env("DYNAMITE_DEV") === "1"
 
     // True while a CC/Sound slider is moving (and briefly after), so the OSD stays quiet.
     property bool adjusting: false
@@ -54,11 +57,50 @@ Singleton {
         if (node.isSink) Pipewire.preferredDefaultAudioSink = node
         else Pipewire.preferredDefaultAudioSource = node
     }
+    function refreshCards(): void { if (!cardReader.running) cardReader.running = true }
+    function setCardProfile(card: string, profile: string): void {
+        if (!card || !profile) return
+        if (dryRun) {
+            console.info("[Dynamite] audio profile (dry run)", card, profile)
+            return
+        }
+        profileWriter.exec(["pactl", "set-card-profile", card, profile])
+        profileRefresh.restart()
+    }
     function label(node: PwNode): string {
         return node?.description || node?.nickname || node?.name || "Unknown"
     }
 
     PwObjectTracker { objects: [root.sink, root.source] }
+
+    Process {
+        id: cardReader
+        command: ["pactl", "--format=json", "list", "cards"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const data = JSON.parse(text)
+                    root.cards = data.map(card => ({
+                        id: card.name,
+                        name: card.properties?.["device.description"] || card.name,
+                        profiles: Object.keys(card.profiles || {}).map(profile => ({
+                            name: profile,
+                            description: card.profiles[profile].description || profile,
+                            available: card.profiles[profile].available === true,
+                            sinks: Number(card.profiles[profile].sinks || 0),
+                            sources: Number(card.profiles[profile].sources || 0)
+                        })).filter(profile => profile.available && (profile.sinks || profile.sources)),
+                        activeProfile: card.active_profile || ""
+                    }))
+                } catch (error) {
+                    root.cards = []
+                    console.warn("[Dynamite] could not read audio card profiles:", error)
+                }
+            }
+        }
+    }
+    Process { id: profileWriter }
+    Timer { id: profileRefresh; interval: 650; onTriggered: root.refreshCards() }
 
     // Only real volume/mute changes raise the OSD: not the initial values, nor a switch of the default sink.
     property bool armed: false

@@ -26,6 +26,9 @@ Singleton {
     property alias weather: dataView.weather
     property alias system: dataView.system
 
+    // Theme outputs must wait until the persisted settings adapter has loaded.
+    property bool startupReady: false
+
     property double ownWriteUntil: 0
     function save(): void {
         ownWriteUntil = Date.now() + 500
@@ -65,6 +68,8 @@ Singleton {
         id: settingsFile
         path: root.filePath
         watchChanges: true
+        onLoaded: root.startupReady = true
+        onSaved: root.startupReady = true
         // Our own writes also fire fileChanged; reloading then would drop changes made since the write.
         onFileChanged: if (Date.now() > root.ownWriteUntil) reload()
         onAdapterUpdated: saveTimer.restart()
@@ -96,12 +101,18 @@ Singleton {
             property JsonObject appearance: JsonObject {
                 property string theme: "nord"
                 property string wallpaper: ""
+                property var colorOverrides: ({})
             }
             property JsonObject clock: JsonObject { property bool use24h: true }
             property JsonObject launcher: JsonObject { property int maxResults: 6 }
             property JsonObject notifications: JsonObject { property int toastSeconds: 4; property bool dnd: false }
             property JsonObject controlCenter: JsonObject { property int columns: 7; property var items: [] }
-            property JsonObject display: JsonObject { property bool nightLight: false; property int nightLightTemp: 3700 }
+            property JsonObject display: JsonObject {
+                property bool nightLight: false
+                property int nightLightTemp: 3700
+                property var outputLayout: ({})
+                property string startupFocusOutput: ""
+            }
             property JsonObject lock: JsonObject { property int blur: 48 }
             property JsonObject wallpaper: JsonObject {
                 property string dir: "~/Pictures/Themes"
@@ -173,8 +184,13 @@ Singleton {
         id: bootstrap
         interval: 350
         onTriggered: {
-            if (!settingsFile.exists) root.save()
+            // importLegacy() also writes the initialized defaults, even when
+            // there is no legacy file or no user settings file yet.
             root.importLegacy()
+            // A first-run settings file may not have existed when FileView's
+            // initial read ran. Reload after creating it so startupReady is
+            // raised only after the adapter contains the persisted values.
+            if (!settingsFile.loaded) settingsFile.reload()
         }
     }
 }

@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.config
+import qs.services
 
 // TLP power profile via tlpctl. In the nested dev session writes are only logged.
 Singleton {
@@ -10,7 +11,7 @@ Singleton {
     readonly property bool dryRun: Quickshell.env("DYNAMITE_DEV") === "1"
     property string current: ""
     property bool onBattery: false
-    property int percent: 100
+    property real percent: 100
     property bool manualOverride: false
 
     function refresh(): void { reader.running = true }
@@ -38,12 +39,30 @@ Singleton {
     }
     function choose(): void {
         if (!Config.power.auto || manualOverride) return
-        if (!onBattery) setAutomatic("performance")
-        else if (current === "power-saver" && percent <= Config.power.saverAt + Config.power.hysteresis) return
-        else { const wanted = percent <= Config.power.saverAt ? "power-saver" : "balanced"; setAutomatic(wanted); manualOverride = false }
+        const wanted = !onBattery ? "performance"
+            : percent < Config.power.saverAt ? "power-saver" : "balanced"
+        if (wanted !== current) setAutomatic(wanted)
     }
 
-    Component.onCompleted: refresh()
+    Component.onCompleted: {
+        onBattery = Battery.onBattery
+        percent = Battery.fraction * 100
+        choose()
+        refresh()
+    }
+    Connections {
+        target: Battery
+        function onOnBatteryChanged(): void {
+            root.onBattery = Battery.onBattery
+            root.percent = Battery.fraction * 100
+            root.manualOverride = false
+            root.choose()
+        }
+        function onFractionChanged(): void {
+            root.percent = Battery.fraction * 100
+            root.choose()
+        }
+    }
 
     Process {
         id: reader

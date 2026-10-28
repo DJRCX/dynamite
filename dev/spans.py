@@ -11,7 +11,10 @@ from PIL import Image
 
 
 def spans(path, row, threshold=12, min_width=4):
-    image = Image.open(path).convert("RGB")
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    if row < 0 or row >= image.height:
+        raise ValueError(f"row {row} is outside image bounds (0–{image.height - 1}): {path}")
     width = image.width
     runs, start = [], None
     for x in range(width):
@@ -29,10 +32,18 @@ def spans(path, row, threshold=12, min_width=4):
 
 
 def main():
-    row = int(sys.argv[1])
+    if len(sys.argv) < 3:
+        raise SystemExit("usage: spans.py <row-y> <png>...")
+    try:
+        row = int(sys.argv[1])
+    except ValueError:
+        raise SystemExit("row-y must be an integer") from None
     for path in sys.argv[2:]:
-        t = os.path.getmtime(path)
-        text = " ".join(f"{a}-{b}({b - a + 1})" for a, b in spans(path, row))
+        try:
+            t = os.path.getmtime(path)
+            text = " ".join(f"{a}-{b}({b - a + 1})" for a, b in spans(path, row))
+        except (OSError, ValueError) as error:
+            raise SystemExit(str(error)) from None
         print(f"{os.path.basename(path)}\t{t % 100:.3f}\t{text}")
 
 

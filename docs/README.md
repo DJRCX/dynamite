@@ -1,16 +1,12 @@
-# Dynamite — build guide
+# Dynamite — design and historical build guide
 
-Dynamite is a Dynamic-Island style Quickshell shell for Niri: three black "islands" at the top of the screen (album art circle, clock pill, status circle) that morph with spring physics into a media player, clock, calendar, control center, launcher, power menu, OSD, notification toast, polkit prompt and theme picker. It also has a lock screen, a settings app and a game-mode bar.
+Dynamite is a Dynamic-Island-style Quickshell shell for Niri. The implementation lives at the repository root; install and development instructions are in the top-level [`README.md`](../README.md).
 
-**Dynamite fully replaces simple-bar.** It is built in `dynamite/` while the legacy bar keeps running. Then simple-bar's own features (wallpapers, clipboard, cheatsheet, power profiles, caffeine, system monitor, weather, window menu, terminal colors, Wallhaven) are rebuilt and improved inside Dynamite. Finally the legacy files are deleted and Dynamite becomes the whole repo.
+This documentation began as a phased implementation specification. Its architecture, UI and service descriptions remain design references, but the staged `dynamite/` layout and phase-by-phase build instructions are historical and must not be used as the current contributor workflow. For actionable defects and improvement opportunities, see [`project-audit.md`](project-audit.md).
 
-This folder is the complete spec. It is written so that a coding agent (Codex) can build the shell phase by phase without seeing the original.
+> Before changing the shell, inspect the current source and use the version-matched platform references in [`niri/README.md`](niri/README.md) and [`quickshell/README.md`](quickshell/README.md). Treat discrepancies between this historical spec and the code as design history, not proof of current behavior.
 
-> This guide began as a phased build specification. For the current implementation
-> and a summary of changes since the last GitHub push, see
-> [`changes-since-v2.0.0.md`](changes-since-v2.0.0.md). The phase documents below
-> retain historical design and acceptance details where they differ from the
-> current code.
+A dated implementation snapshot is available in [`changes-since-v2.0.0.md`](changes-since-v2.0.0.md).
 
 ## Sources of truth
 
@@ -28,7 +24,7 @@ The project spec documents Dynamite's intended behavior and design. For Niri and
 
 When the spec and a screenshot disagree, the screenshot wins for looks and the spec wins for behaviour. Numbers in this spec were measured from the screenshots at 1× scale on a 1920×1080 output.
 
-## Read in this order
+## Historical spec reading order
 
 1. `01-architecture.md` — directory layout, windows, state machine, IPC, dev loop.
 2. `02-design-tokens.md` — colors, type, metrics, shadows, icons, config keys.
@@ -38,10 +34,10 @@ When the spec and a screenshot disagree, the screenshot wins for looks and the s
 6. `06-overlays.md` — launcher, power menu, OSD, toast, polkit, theme picker, lock screen.
 7. `07-settings.md` — settings window and the drag-and-drop control-center editor.
 8. `08-services.md` — every data source and system command.
-9. `09-phases.md` — **the build plan**: 18 phases, each with deliverables and acceptance checks.
+9. `09-phases.md` — historical phase plan and acceptance checks (not current tasks).
 10. `10-extras.md` — simple-bar's features, what was wrong with them, and how to rebuild them.
 
-## Phases at a glance
+## Historical phases at a glance
 
 | Phases | What |
 |---|---|
@@ -49,9 +45,11 @@ When the spec and a screenshot disagree, the screenshot wins for looks and the s
 | 13–17 | Extras: accent-grouped themes + wallpapers + terminal colors, Wallhaven, clipboard + cheatsheet, power profiles + caffeine + idle, system monitor + weather + window menu |
 | 18 | Takeover: legacy files deleted, `dynamite/` becomes the repo root (Codex prepares, you run it) |
 
-## How to drive Codex with this
+## Historical phase prompts
 
-Run one phase per Codex session. A good prompt:
+The phase table and following prompt are retained for design history only. Do not treat the phases as current implementation tasks. For current development, start from the top-level README, inspect existing code, and add tests for the behavior being changed.
+
+A historical phase prompt:
 
 ```text
 Read AGENTS.md and docs/README.md, then implement Phase 3 from
@@ -64,7 +62,7 @@ Phases build on each other; don't skip ahead. After each phase, open the nested 
 
 ## Ground rules (also in `AGENTS.md`)
 
-- The legacy files (`shell.qml`, `scripts/`, `systemd/`, `tlp/`, `install.sh`, `config.json`) stay untouched until Phase 18, which deletes them. Dynamite lives in `dynamite/` and never depends on them.
+- Historical Phase 18 material describes a former staged migration. The current project is implemented at the repository root; do not recreate a `dynamite/` staging directory or repeat the takeover.
 - Never restart `simple-bar.service` — it kills every app launched from the bar. That stays true after the takeover, because Dynamite runs under the same unit.
 - Every animation is a spring (`03-motion.md`). No bezier easing curves anywhere.
 - No literal colors or sizes inside components — always `Theme.*`, `Metrics.*`, `Config.*`.

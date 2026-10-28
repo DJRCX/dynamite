@@ -18,6 +18,7 @@ Singleton {
         return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1
     }
     readonly property int percentage: Math.round(fraction * 100)
+    readonly property bool onBattery: UPower.onBattery
     readonly property bool charging: device && (device.state === UPowerDeviceState.Charging || device.state === UPowerDeviceState.FullyCharged)
     readonly property real timeLeft: charging ? (device?.timeToFull ?? 0) : (device?.timeToEmpty ?? 0)
 }

@@ -25,9 +25,9 @@ Rectangle {
     Rectangle {
         x: 8
         y: (root.height - height) / 2
-        width: 42
-        height: 42
-        radius: 21
+        width: Math.min(42, Math.max(30, root.height - 12))
+        height: width
+        radius: width / 2
         color: Theme.mix(Theme.mix(Theme.raised, Theme.chip, iconArea.containsMouse ? 1 : 0), Theme.accent, root.on)
         Icon {
             anchors.centerIn: parent
@@ -44,13 +44,13 @@ Rectangle {
         }
     }
     Txt {
-        x: 60; y: 15
+        x: 60; y: Math.max(4, (root.height - 34) / 2)
         width: root.width - 72
         px: 14; weight: Font.DemiBold
         text: state.title
     }
     Txt {
-        x: 60; y: 33
+        x: 60; y: Math.max(4, (root.height - 34) / 2 + 19)
         width: root.width - 72
         px: 10.5
         color: Theme.textSecondary

@@ -47,6 +47,6 @@ Qt modules also used in this project: `QtQuick`, `QtQuick.Layouts`, `QtQuick.Eff
 
 ## Version and source record
 
-- Installed Quickshell when reviewed: `0.3.2` (Arch Linux package).
+- Installed Quickshell when reviewed: `0.3.2` (Arch Linux package). Confirm with `qs --version` before version-sensitive changes.
 - Official docs: [quickshell.org/docs/v0.3.2](https://quickshell.org/docs/v0.3.2/), accessed 2026-10-12.
 - This index summarizes the relevant official documentation; it does not vendor upstream content.

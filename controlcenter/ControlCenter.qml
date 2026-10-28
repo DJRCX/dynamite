@@ -37,6 +37,10 @@ Item {
                 readonly property var r: GridLayoutModel.rect(modelData)
                 x: r.x; y: r.y
                 width: r.w; height: r.h
+                Behavior on x { Spring { token: Motion.panel } }
+                Behavior on y { Spring { token: Motion.panel } }
+                Behavior on width { Spring { token: Motion.panel } }
+                Behavior on height { Spring { token: Motion.panel } }
                 sourceComponent: {
                     switch (modelData.kind) {
                     case "tile": return modelData.w === 1 ? toggleComponent : tileComponent

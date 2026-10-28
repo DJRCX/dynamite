@@ -217,7 +217,7 @@ Item {
     Flickable {
         id: gallery
         x: 14; y: 101
-        width: root.width - 28; height: 250
+        width: root.width - 28; height: Metrics.wallpaperGalleryHeight
         contentWidth: cards.implicitWidth
         contentHeight: height
         clip: true
@@ -226,19 +226,21 @@ Item {
         onAtXEndChanged: if (atXEnd && root.tab === "Online") Wallhaven.loadMore()
         Row {
             id: cards
-            spacing: 8
+            spacing: Metrics.wallpaperCardGap
             Repeater {
                 model: root.wallpaperItems
                 delegate: Rectangle {
                     id: card
                     required property var modelData
                     required property int index
-                    width: 184; height: 242
+                    width: Metrics.wallpaperCardWidth
+                    height: Metrics.wallpaperCardHeight
                     radius: Metrics.themeCardRadius
                     color: Theme.panel
                     Rectangle {
                         x: 4; y: 4
-                        width: parent.width - 8; height: 194
+                        width: parent.width - 8
+                        height: Metrics.wallpaperThumbHeight
                         radius: Metrics.rowRadius; clip: true
                         color: Theme.card
                         Image {
@@ -247,7 +249,7 @@ Item {
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: true
-                            sourceSize: Qt.size(360, 388)
+                            sourceSize: Qt.size(width * 2, height * 2)
                         }
                         Rectangle {
                             anchors.fill: parent
@@ -258,7 +260,7 @@ Item {
                         }
                     }
                     Txt {
-                        x: 8; y: 205
+                        x: 8; y: Metrics.wallpaperThumbHeight + 13
                         width: parent.width - 16
                         px: 9.5
                         color: card.index === root.wallpaperIndex ? Theme.text : Theme.textSecondary
@@ -283,8 +285,8 @@ Item {
     }
 
     function ensureSelectedVisible(): void {
-        const pitch = 184 + 8
-        const target = wallpaperIndex * pitch - (gallery.width - 184) / 2
+        const pitch = Metrics.wallpaperCardWidth + Metrics.wallpaperCardGap
+        const target = wallpaperIndex * pitch - (gallery.width - Metrics.wallpaperCardWidth) / 2
         gallery.contentX = Math.max(0, Math.min(target, gallery.contentWidth - gallery.width))
     }
     onWallpaperIndexChanged: Qt.callLater(ensureSelectedVisible)
@@ -301,9 +303,9 @@ Item {
             : "No wallpapers for this theme yet"
     }
 
-    Rectangle { x: 14; y: 365; width: root.width - 28; height: 1; color: Theme.divider }
+    Rectangle { x: 14; y: Metrics.wallpaperFooterDividerY; width: root.width - 28; height: 1; color: Theme.divider }
     Txt {
-        x: 15; y: 376
+        x: 15; y: Metrics.wallpaperFooterY
         px: 9.5
         color: Wallpaper.error ? Theme.danger : Theme.textMuted
         text: Wallpaper.error || (root.tab === "Online"
@@ -311,7 +313,7 @@ Item {
             : "Enter or click to apply · wallpapers are stored with this theme")
     }
     Txt {
-        x: root.width - 14 - width; y: 376
+        x: root.width - 14 - width; y: Metrics.wallpaperFooterY
         px: 9.5
         color: Theme.textMuted
         text: "Mod+3: Themes"

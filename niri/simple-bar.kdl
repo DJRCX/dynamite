@@ -1,16 +1,27 @@
 // Dynamite IPC bindings. Review existing chords before including this file.
 binds {
-    Mod+Alt+L allow-when-locked=true hotkey-overlay-title="Lock" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "lock" "lock"; }
-    Mod+Shift+Ctrl+Q hotkey-overlay-title="Reload Shell" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "shell" "reload"; }
-    Mod+1 hotkey-overlay-title="Media" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "media"; }
-    Mod+2 hotkey-overlay-title="Control Center" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "cc"; }
-    Mod+3 hotkey-overlay-title="Themes" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "themes"; }
-    Mod+4 hotkey-overlay-title="Wallpapers" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "wallpapers"; }
-    Mod+Alt+Space hotkey-overlay-title="Window Menu" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "island" "toggle" "window"; }
-    Mod+5 hotkey-overlay-title="Game Mode" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "gamemode" "toggle"; }
-    Mod+Comma hotkey-overlay-title="Settings" { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "settings" "open" "Bar & Island"; }
-    XF86MonBrightnessUp allow-when-locked=true { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "brightness" "up"; }
-    XF86MonBrightnessDown allow-when-locked=true { spawn "qs" "ipc" "-p" "/home/djrcx/.config/quickshell/simple-bar" "call" "brightness" "down"; }
+    Mod+Alt+L allow-when-locked=true hotkey-overlay-title="Lock" { spawn "qs" "ipc" "--newest" "call" "lock" "lock"; }
+    Mod+Shift+Ctrl+Q hotkey-overlay-title="Reload Shell" { spawn "qs" "ipc" "--newest" "call" "shell" "reload"; }
+    Mod+1 hotkey-overlay-title="Media" { spawn "qs" "ipc" "--newest" "call" "island" "toggle" "media"; }
+    Mod+2 hotkey-overlay-title="Control Center" { spawn "qs" "ipc" "--newest" "call" "island" "toggle" "cc"; }
+    Mod+3 hotkey-overlay-title="Themes" { spawn "qs" "ipc" "--newest" "call" "island" "toggle" "themes"; }
+    Mod+4 hotkey-overlay-title="Wallpapers" { spawn "qs" "ipc" "--newest" "call" "island" "toggle" "wallpapers"; }
+    Mod+Alt+Space hotkey-overlay-title="Window Menu" { spawn "qs" "ipc" "--newest" "call" "island" "toggle" "window"; }
+    Mod+5 hotkey-overlay-title="Game Mode" { spawn "qs" "ipc" "--newest" "call" "gamemode" "toggle"; }
+    Mod+Comma hotkey-overlay-title="Settings" { spawn "qs" "ipc" "--newest" "call" "settings" "open" "Bar & Island"; }
+    XF86MonBrightnessUp allow-when-locked=true { spawn "qs" "ipc" "--newest" "call" "brightness" "up"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn "qs" "ipc" "--newest" "call" "brightness" "down"; }
+}
+// Use Niri's native Alt+Tab previews with its neutral grey selection hidden.
+recent-windows {
+    highlight {
+        active-color "#99999900"
+        urgent-color "#99999900"
+    }
+}
+layer-rule {
+    match namespace="dynamite-overview-wallpaper"
+    place-within-backdrop true
 }
 window-rule {
     match title="^Dynamite Settings$"

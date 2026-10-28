@@ -25,7 +25,11 @@ ShellRoot {
         model: Quickshell.screens
         Scrim { required property var modelData; screen: modelData }
     }
-
+    // These full-output surfaces sit behind Niri's overview backdrop.
+    Variants {
+        model: Quickshell.screens
+        OverviewWallpaper { required property var modelData; screen: modelData }
+    }
     IpcHandler {
         target: "island"
         function open(mode: string): void { Island.open(mode) }

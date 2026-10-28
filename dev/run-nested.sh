@@ -2,15 +2,15 @@
 # Usage: run-nested.sh [start|stop|restart|status] [--windowed]
 # Starts a nested Niri running Dynamite in the background and returns.
 # Niri discards its children's output, so Quickshell is started through a
-# wrapper that writes to /tmp/dynamite-dev.log. The nested display name is
-# stored in /tmp/dynamite-display for dev/ipc.sh, dev/log.sh and dev/shot.sh.
+# wrapper that writes logs and display state under the user's runtime directory.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-STATE=/tmp/dynamite-display
-PIDFILE=/tmp/dynamite-niri.pid
-NIRI_LOG=/tmp/dynamite-niri.log
-QS_LOG=/tmp/dynamite-dev.log
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/dynamite-${UID}"
+STATE="$RUNTIME_DIR/display"
+PIDFILE="$RUNTIME_DIR/niri.pid"
+NIRI_LOG="$RUNTIME_DIR/niri.log"
+QS_LOG="$RUNTIME_DIR/quickshell.log"
 HOST_DISPLAY="${WAYLAND_DISPLAY:-}"
 
 cmd="${1:-start}"
@@ -37,8 +37,10 @@ start() {
         exit 1
     fi
 
+    mkdir -p "$RUNTIME_DIR"
+    chmod 700 "$RUNTIME_DIR"
     local cfg
-    cfg="$(mktemp --suffix=.kdl)"
+    cfg="$(mktemp "$RUNTIME_DIR/niri-XXXXXX.kdl")"
     sed "s#DYNAMITE_DIR#$DIR#g" "$DIR/dev/niri-dev.kdl" > "$cfg"
     : > "$QS_LOG"
 
@@ -55,11 +57,18 @@ start() {
             echo "nested niri exited; see $NIRI_LOG" >&2
             tail -n 20 "$NIRI_LOG" >&2
             grep -q NoCompositor "$NIRI_LOG" && echo "NoCompositor: the host socket exists but can't be opened. Is this running inside a sandbox (e.g. Codex without full access)?" >&2
+            rm -f "$PIDFILE" "$STATE" "$cfg"
             exit 1
         fi
         sleep 0.1
     done
-    [[ -n "$display" ]] || { echo "nested niri didn't open a socket; see $NIRI_LOG" >&2; exit 1; }
+    if [[ -z "$display" ]]; then
+        echo "nested niri didn't open a socket; see $NIRI_LOG" >&2
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE" "$STATE" "$cfg"
+        exit 1
+    fi
+    rm -f "$cfg"
     echo "$display" > "$STATE"
 
     # Make the nested output exactly the host output's size (1920x1080 on eDP-1)

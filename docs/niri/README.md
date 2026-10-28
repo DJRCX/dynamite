@@ -19,7 +19,8 @@ The [official Niri wiki source](https://github.com/niri-wm/niri/wiki) is also us
 | Change area | Read first | Project files |
 |---|---|---|
 | Live window/workspace/output state | [IPC and event stream](https://niri-wm.github.io/niri/IPC.html) | `services/Niri.qml`, `services/Displays.qml` |
-| Per-output bar visibility and fullscreen detection | [IPC](https://niri-wm.github.io/niri/IPC.html), [fullscreen and maximize](https://niri-wm.github.io/niri/Fullscreen-and-Maximize.html), and Quickshell's [Toplevel](https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/Toplevel/) docs | `services/Niri.qml`, `island/IslandWindow.qml` |
+| Overview wallpaper and native recent-window switching | [Overview](https://niri-wm.github.io/niri/Overview.html), [Recent Windows](https://niri-wm.github.io/niri/Configuration%3A-Recent-Windows.html), and [Layer Rules](https://niri-wm.github.io/niri/Configuration%3A-Layer-Rules.html) | `island/OverviewWallpaper.qml`, `niri/simple-bar.kdl` |
+| Per-output bar visibility and fullscreen detection | [IPC](https://niri-wm.github.io/niri/IPC.html), [fullscreen and maximize](https://niri-wm.github.io/niri/Fullscreen-and-Maximize.html), and Quickshell's [Toplevel](https://quickshell.org/docs/v0.3.2/types/Quickshell.Wayland/Toplevel/) docs | `services/Niri.qml`, `island/IslandWindow.qml` |
 | Output configuration | [Outputs](https://niri-wm.github.io/niri/Configuration%3A-Outputs.html) | `niri/simple-bar.kdl`, `dev/niri-dev.kdl`, `services/Displays.qml` |
 | Key bindings and actions | [Key Bindings](https://niri-wm.github.io/niri/Configuration%3A-Key-Bindings.html) | `niri/simple-bar.kdl`, `dev/niri-dev.kdl`, `services/Keybinds.qml` |
 | Layer-shell surface behavior | [Layer-Shell Components](https://niri-wm.github.io/niri/Layer%E2%80%90Shell-Components.html) and [Layer Rules](https://niri-wm.github.io/niri/Configuration%3A-Layer-Rules.html) | `island/IslandWindow.qml`, other panel windows under `island/` |

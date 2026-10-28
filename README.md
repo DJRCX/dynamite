@@ -6,7 +6,7 @@ Formerly **simple-bar**. The final simple-bar version is preserved as the [`simp
 
 ## Installing
 
-On a new machine, run `install.sh`. An existing simple-bar checkout was switched over with `dev/takeover.sh`, which keeps the `simple-bar.service` unit name and backs up the Niri files it edits; `dev/takeover.sh rollback` returns that checkout to simple-bar.
+On a new machine, run `install.sh`. It checks for `pactl` as well as the shell's other runtime tools because the Sound page uses it to list and switch hardware profiles. An existing simple-bar checkout was switched over with `dev/takeover.sh`, which keeps the `simple-bar.service` unit name and backs up the Niri files it edits; `dev/takeover.sh rollback` returns that checkout to simple-bar.
 
 ## Development
 
@@ -22,4 +22,4 @@ Settings are stored in `~/.config/dynamite/settings.json`; generated themes and 
 
 ## Troubleshooting
 
-Check `/tmp/dynamite-dev.log` for Quickshell errors. Use `qs ipc -p <shell-directory> show` to inspect IPC targets. Do not restart `simple-bar.service` while applications are running under its cgroup.
+Check `$XDG_RUNTIME_DIR/dynamite-$(id -u)/quickshell.log` for Quickshell errors. Use `qs ipc -p <shell-directory> show` to inspect IPC targets. Do not restart `simple-bar.service` while applications are running under its cgroup.

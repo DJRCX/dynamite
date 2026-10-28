@@ -10,10 +10,11 @@ Rectangle {
     color: Theme.panel
     readonly property var player: Media.activePlayer
     readonly property string artwork: player?.trackArtUrl ?? ""
+    readonly property int artworkSize: Math.max(52, Math.min(72, height - 20))
 
     ClippingRectangle {
         x: 10; y: 10
-        width: 72; height: 72
+        width: root.artworkSize; height: root.artworkSize
         radius: 12
         color: Theme.card
         Image {
@@ -35,16 +36,16 @@ Rectangle {
     }
 
     Txt {
-        x: 91; y: 11
-        width: parent.width - 101
+        x: root.artworkSize + 19; y: 11
+        width: parent.width - x - 10
         px: 11.5; weight: Font.DemiBold
         text: root.player?.trackTitle || "Nothing playing"
         elide: Text.ElideRight
         maximumLineCount: 2
     }
     Txt {
-        x: 91; y: 39
-        width: parent.width - 101
+        x: root.artworkSize + 19; y: 39
+        width: parent.width - x - 10
         px: 9.5
         color: Theme.textSecondary
         text: root.player?.trackArtist ?? ""
@@ -52,8 +53,8 @@ Rectangle {
     }
 
     Row {
-        x: 88; y: 76
-        width: parent.width - 96
+        x: root.artworkSize + 16; y: parent.height - 44
+        width: parent.width - x - 8
         height: 34
         spacing: 8
         Item {

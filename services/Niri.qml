@@ -8,8 +8,10 @@ Singleton {
     id: root
     property var workspaces: []
     property var windows: []
+    property var activeWindowIds: ({})
     property var focusedWindowId: null
     property bool focusedFullscreen: false
+    property bool inOverview: false
     readonly property var focusedWorkspace: workspaces.find(ws => ws.is_focused) ?? null
     readonly property string focusedOutput: focusedWorkspace?.output ?? ""
     readonly property var focusedWindow: windows.find(w => w.id === focusedWindowId) ?? null
@@ -31,7 +33,10 @@ Singleton {
     function isOutputFullscreen(output: string): bool {
         const active = workspaces.find(ws => ws.output === output && ws.is_active)
         if (!active) return false
-        return windows.some(win => win.workspace_id === active.id && isFullscreenOnOutput(win, output))
+        const fallbackId = active.is_focused && focusedWindow?.workspace_id === active.id ? focusedWindowId : null
+        const activeId = activeWindowIds[active.id] ?? fallbackId
+        const activeWindow = windows.find(win => win.id === activeId) ?? null
+        return isFullscreenOnOutput(activeWindow, output)
     }
 
     function updateFullscreen(win: var): void {
@@ -62,6 +67,11 @@ Singleton {
                 return copy
             })
             updateFullscreen(focusedWindow)
+        } else if (event.WorkspaceActiveWindowChanged) {
+            const change = event.WorkspaceActiveWindowChanged
+            const next = Object.assign({}, activeWindowIds)
+            next[change.workspace_id] = change.active_window_id
+            activeWindowIds = next
         } else if (event.WindowsChanged) {
             windows = event.WindowsChanged.windows
             focusedWindowId = windows.find(w => w.is_focused)?.id ?? null
@@ -79,6 +89,12 @@ Singleton {
         } else if (event.WindowFocusChanged) {
             focusedWindowId = event.WindowFocusChanged.id
             updateFullscreen(windows.find(w => w.id === focusedWindowId) ?? null)
+        } else if (event.WindowFocusTimestampChanged) {
+            const update = event.WindowFocusTimestampChanged
+            windows = windows.map(win => win.id === update.id
+                ? Object.assign({}, win, { focus_timestamp: update.focus_timestamp }) : win)
+        } else if (event.OverviewOpenedOrClosed) {
+            inOverview = !!event.OverviewOpenedOrClosed.is_open
         }
     }
 

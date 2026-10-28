@@ -10,6 +10,8 @@ SubPage {
     title: "Sound"
 
     PwObjectTracker { objects: Audio.streams }
+    Component.onCompleted: Audio.refreshCards()
+    Timer { interval: 5000; repeat: true; running: true; onTriggered: Audio.refreshCards() }
 
     component NodeRow: DeviceRow {
         id: row
@@ -46,6 +48,48 @@ SubPage {
         Repeater {
             model: ScriptModel { values: Audio.outputs; objectProp: "id" }
             NodeRow {}
+        }
+    }
+    Item { width: 1; height: Metrics.sectionGap }
+    SectionLabel { text: "Hardware profiles"; visible: Audio.cards.length > 0 }
+    Item { width: 1; height: Metrics.sectionGap; visible: Audio.cards.length > 0 }
+    Column {
+        width: root.contentWidth
+        spacing: Metrics.rowGap
+        visible: Audio.cards.length > 0
+        Repeater {
+            model: ScriptModel { values: Audio.cards; objectProp: "id" }
+            Rectangle {
+                id: card
+                required property var modelData
+                width: root.contentWidth
+                height: profileFlow.implicitHeight + Metrics.audioProfileBottomPadding
+                radius: Metrics.rowRadius
+                color: Theme.card
+                Txt {
+                    x: Metrics.audioProfileHeaderInset; y: Metrics.audioProfileTitleTop
+                    width: parent.width - 24
+                    px: 12; weight: Font.DemiBold
+                    text: card.modelData.name
+                    elide: Text.ElideRight
+                }
+                Flow {
+                    id: profileFlow
+                    x: Metrics.audioProfileInset; y: Metrics.audioProfileFlowTop
+                    width: parent.width - 2 * Metrics.audioProfileInset
+                    spacing: Metrics.rowGap
+                    Repeater {
+                        model: card.modelData.profiles
+                        PillButton {
+                            required property var modelData
+                            text: modelData.description
+                            accentText: modelData.name === card.modelData.activeProfile
+                            onClicked: if (modelData.name !== card.modelData.activeProfile)
+                                Audio.setCardProfile(card.modelData.id, modelData.name)
+                        }
+                    }
+                }
+            }
         }
     }
     Item { width: 1; height: 11 }

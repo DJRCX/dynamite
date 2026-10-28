@@ -19,6 +19,25 @@ Singleton {
     readonly property int ccHeight: 514
     readonly property int ccSoundHeight: 717
     readonly property int ccDisplayHeight: 562
+    readonly property int ccDisplayLayoutHeight: 190
+    readonly property int ccDisplayCanvasTop: 47
+    readonly property int ccDisplayCanvasHeight: 112
+    readonly property int ccDisplayHeaderTop: 10
+    readonly property int ccDisplayCanvasInset: 4
+    readonly property int ccDisplayHintTop: 161
+    readonly property int ccDisplayHintHeight: 26
+    readonly property int ccDisplayPanelInset: 10
+    readonly property int ccLayoutTileMinWidth: 54
+    readonly property int ccLayoutTileMinHeight: 34
+    readonly property int ccLayoutTileRadius: 9
+    readonly property int ccMonitorCardHeight: 196
+    readonly property int ccMonitorActionTop: 158
+    readonly property int ccMonitorListTop: 194
+    readonly property int audioProfileFlowTop: 34
+    readonly property int audioProfileBottomPadding: 42
+    readonly property int audioProfileInset: 10
+    readonly property int audioProfileHeaderInset: 12
+    readonly property int audioProfileTitleTop: 8
     readonly property int subpageInsetX: 22
     readonly property int subpageInsetY: 20
     readonly property int subpageWidth: 470
@@ -58,7 +77,15 @@ Singleton {
     readonly property int keybindMaxRows: 9
     // Theme picker carousel: cards 185 × 98, 9 px apart; the selected one lifts 8 px.
     readonly property int themePickerHeight: 220
-    readonly property int wallpaperPickerHeight: 408
+    readonly property int wallpaperPickerHeight: 350
+    readonly property int wallpaperGalleryHeight: 190
+    readonly property int wallpaperFooterDividerY: 302
+    readonly property int wallpaperFooterY: 313
+    readonly property int wallpaperCardWidth: 250
+    readonly property int wallpaperCardHeight: 185
+    readonly property int wallpaperCardGap: 8
+    readonly property int wallpaperThumbHeight: 141
+    readonly property int wallpaperPrefetchCount: 5
     readonly property int themeCardWidth: 185
     readonly property int themeCardHeight: 98
     readonly property int themeCardGap: 9
@@ -82,6 +109,16 @@ Singleton {
     readonly property int settingsFormatOptionWidth: 118
     readonly property int settingsFormatOptionHeight: 34
     readonly property int settingsFormatOptionGap: 8
+    readonly property int settingsHeaderHeight: 112
+    readonly property int settingsRowHeight: 82
+    readonly property int settingsSliderWidthMin: 250
+    readonly property int settingsSliderWidthMax: 570
+    readonly property int settingsSectionGap: 8
+    readonly property int themeEditorRowHeight: 42
+    readonly property int themeEditorRowGap: 8
+    readonly property int themeEditorColumnGap: 12
+    readonly property int themeEditorSwatchSize: 24
+    readonly property int themeEditorFieldWidth: 100
     readonly property int sliderTrackThickness: 4
     readonly property int sliderThumbDiameter: 16
     readonly property int settingsSliderHitHeight: 24

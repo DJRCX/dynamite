@@ -94,13 +94,17 @@ Radius 11. On: track `accent`, knob 16 px `onAccent` at x 21. Off: track `Theme.
 
 ### Sound (`pages/SoundPage.qml`) — island 514 × 717
 - "Output" at y 69, then output devices as 440 × 38 rows (radius 12) from y 96, ~44 px pitch. The default sink row uses `Theme.accent` text + a check icon; others `Theme.card`.
+- "Hardware profiles" lists available PipeWire card profiles. Selecting HDMI or another profile can activate sinks not present in the current profile; newly available output/input nodes then appear in the regular device lists. Profile changes use `pactl` and are dry-run in the nested development session.
 - Output volume slider at y 327: 399 × 25, radius 12.5, with the percentage (Medium 10.5 `textSecondary`) at x 415.
 - "Input" at y 367, input devices from y 394, input volume slider at y 535.
 - "Apps" at y 576: one 440 × 56 row per playing stream (app icon, app name, its own volume slider).
 - Clicking a device row makes it the default (`wpctl set-default <id>`).
 
-### Display (`pages/DisplayPage.qml`) — island 514 × 562
-One **monitor card** per Niri output (440 × 160, radius 16, `Theme.card`, 17 px apart), from y 69:
+### Display (`pages/DisplayPage.qml`) — island 514 × scrollable
+- The layout card provides a draggable logical-coordinate overview, an Extend action, and the saved startup-focus output. It explains that Niri has no native mirror mode; `wl-mirror` can show a source output in a fullscreen window.
+- Each monitor card has an on/off switch, "Use only" action, and startup-priority action in addition to mode and scale controls. Runtime arrangement preferences persist in Dynamite settings.
+
+One monitor card per Niri output (440 px wide, `Theme.card`), from y 69:
 
 - Header: 30 px icon circle (`accent` for the focused output, `chip` otherwise), name ("eDP-1") SemiBold 14, summary "1920×1200 · 144 Hz · 1×" Regular 10.5 `textSecondary`; "focused" Medium 11 `accent` at the right for the focused output.
 - Brightness slider at y 53: 378 × 25, radius 12.5, percentage at x 388. Drives the **smooth ramp** (`08-services.md` → Brightness). This is the feature the walkthrough highlights: brightness moves like a phone's, never in steps, for both laptop panels and DDC monitors.

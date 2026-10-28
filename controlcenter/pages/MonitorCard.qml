@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.components
+import qs.config
 import qs.services
 import qs.theme
 
@@ -27,7 +28,7 @@ Rectangle {
     readonly property real listHeight: Math.min(5, modes.length) * 28 + 8
 
     width: Metrics.pageContentWidth
-    height: 160 + (listOpen ? listHeight : 0)
+    height: Metrics.ccMonitorCardHeight + (listOpen ? listHeight : 0)
     Behavior on height { Spring { token: Motion.panel } }
     radius: Metrics.monitorCardRadius
     color: Theme.card
@@ -53,12 +54,19 @@ Rectangle {
     }
     Txt {
         id: focusedLabel
-        x: root.width - width - 12
+        x: root.output.enabled ? powerSwitch.x - width - 8 : root.width - width - 12
         y: badge.y + (badge.height - height) / 2
         visible: root.focused
         px: 11; weight: Font.Medium
         color: Theme.accent
         text: "focused"
+    }
+    Switch {
+        id: powerSwitch
+        x: root.width - width - 12
+        y: badge.y + (badge.height - height) / 2
+        checked: root.output.enabled
+        onToggled: on => Displays.setEnabled(root.output.name, on)
     }
 
     Slider {
@@ -144,8 +152,29 @@ Rectangle {
         }
     }
 
+    Row {
+        x: 11; y: Metrics.ccMonitorActionTop
+        spacing: 7
+        PillButton {
+            text: "Use only"
+            accentText: false
+            onClicked: Displays.useOnly(root.output.name)
+        }
+        PillButton {
+            text: root.output.name === Config.display.startupFocusOutput ? "Startup priority" : "Set priority"
+            onClicked: Displays.prioritize(root.output.name)
+        }
+        Txt {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !root.output.enabled
+            px: 10
+            color: Theme.textMuted
+            text: "Enable display with the switch above"
+        }
+    }
+
     Flickable {
-        x: 11; y: 158
+        x: 11; y: Metrics.ccMonitorListTop
         width: root.width - 22
         height: root.listHeight - 8
         contentHeight: modeColumn.implicitHeight

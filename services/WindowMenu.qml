@@ -44,8 +44,31 @@ Singleton {
         }
     }
     function forceQuit(): void {
-        if (!captured || captured.id === undefined || !captured.pid || !confirmingForceQuit) return
-        killProcess.command = ["kill", "-9", String(captured.pid)]
+        if (!captured || captured.id === undefined || !confirmingForceQuit) return
+        const pid = Number(captured.pid)
+        if (!Number.isInteger(pid) || pid <= 1) {
+            confirmingForceQuit = false
+            console.warn("[Dynamite] force quit cancelled because the target process is unavailable")
+            return
+        }
+        const liveWindow = Niri.windows.find(win => win.id === captured.id)
+        if (!liveWindow || Number(liveWindow.pid) !== pid
+                || liveWindow.app_id !== captured.app_id) {
+            console.warn("[Dynamite] force quit cancelled because the target window changed")
+            confirmingForceQuit = false
+            return
+        }
+        // XWayland can report its shared server PID for unrelated X11 clients.
+        // In that case, ask Niri to close only the selected window instead.
+        const sharedAcrossApps = Niri.windows.some(win => win.id !== captured.id
+            && Number(win.pid) === pid && win.app_id !== captured.app_id)
+        if (sharedAcrossApps) {
+            Niri.action(["close-window", "--id", String(captured.id)])
+            console.info("[Dynamite] used window-scoped close because the process is shared by other apps")
+            confirmingForceQuit = false
+            return
+        }
+        killProcess.command = ["/usr/bin/kill", "-KILL", "--", String(pid)]
         killProcess.running = true
         confirmingForceQuit = false
     }

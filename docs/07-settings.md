@@ -19,7 +19,7 @@ Every control writes straight to `Config` (which saves to disk). The shell react
 
 - Background `Theme.window`, radius 16, 1 px border `Qt.alpha("#FFFFFF", 0.06)`.
 - **Sidebar** 232 px wide, `Theme.sidebar`:
-  - Search field at (11, 11), 198 × 31, radius 9, `Theme.field`, placeholder "Search Settings" Regular 12 `textMuted`. Filters the nav items and rows (matching rows get an `accent` outline pulse when you jump to them).
+  - Search field at (11, 11), 198 × 31, radius 9, `Theme.field`, placeholder "Search Settings" Regular 12 `textMuted`. Searches page names, descriptions, and adjustable settings; typing a setting name opens its page and filters that page's settings.
   - Nav items from y 54, 198 × 38, radius 10, 5 px apart: icon in a 26 px circle at (9, 6), label Medium 12.5 `text` at x 45. The selected item has a `Theme.card` background and an `accent` icon circle; the others use `accentContainer` circles. The selection background slides between items with the `panel` spring.
   - Items: **Bar & Island**, **Clock & Date**, **Appearance**, **Motion**, **Launcher**, **Notifications**, **Control Center**, **Lock Screen**, **System**.
 - Back/forward history buttons: 24 px `Theme.control` circles at (239, 11) and (275, 11).
@@ -27,11 +27,11 @@ Every control writes straight to `Config` (which saves to disk). The shell react
 
 ## Page anatomy
 
-- **Header card** at y 46: 1054 × 156, radius 12, `Theme.group`. A 56 px circle (`accentContainer`, or `accent` for the active page's icon) centered at the top (y 23), title SemiBold 18 centered at y 88, description Regular 12 `textSecondary` centered at y 118.
+- **Header card** at y 46: 1054 × 112, radius 12, `Theme.group`, with an active `Theme.accent` rail, themed icon tile, page title, plain language description, and an immediate-apply note.
 - **Groups**: 1054 wide, radius 12, `Theme.group`, 13 px below the previous block. An optional group label above it (Regular 10.5 `textMuted`, e.g. "Game mode").
 - **Rows** inside a group, separated by 1 px dividers (`Qt.alpha("#FFFFFF", 0.05)`, inset 15 px):
   - *Toggle row*, 44 tall: label Medium 12 `text` at (15, 15); `Switch` right-aligned at x 999.
-  - *Slider row*, 62 tall: label at (15, 13); value ("33 px") Regular 11 `textSecondary` right-aligned to x 1039; track at (15, 42), 1024 × 4, radius 2, `Theme.raised`; fill `accent`; knob 14 px `Theme.knob`. Dragging updates `Config` continuously.
+  - *Slider row*, 82 tall: setting group, label, short explanation, a responsive themed slider, and a value badge with units. Dragging updates `Config` continuously.
   - *Choice row*: segmented chips (see "Layout" below).
 
 ## Pages
@@ -44,7 +44,7 @@ Group "Game mode": Bar height (32–64), Cluster gap (80–400).
 24-hour clock, leading zero, show seconds in the hover clock, week starts on (Sun/Mon), Sundays in red.
 
 ### Appearance
-Theme (opens the theme picker inline as a grid), media tint strength (0–60%, default 30%). Wallpaper and terminal colors get their own page in Phase 13 (below).
+Theme cards are followed by a per-theme color editor. It edits the shell semantic palette, five supported-app base colors, and all 16 terminal ANSI slots. Hex edits and per-role/reset-all actions save immediately; overrides are stored in Dynamite settings and do not change the theme package. Clearing an override restores the selected theme's derived color.
 
 ### Motion
 Three spring editors (Island, Panel, Fade). Each shows Qt `spring`/`damping` sliders, the equivalent physical stiffness/damping and damping ratio ζ, and a **live preview**: a small island that morphs back and forth every 1.5 s using the edited spring. Plus "Reduce motion" (toggle) and "Reset to defaults".
@@ -67,13 +67,13 @@ This page is the walkthrough's centerpiece: a drag-and-drop editor inspired by A
 - **Editing interactions**:
   - *Select*: click → 1 px `accent` outline; a 16 px `danger` remove badge (with `remove` icon) at the item's top-left corner.
   - *Move*: drag picks the item up. It becomes a compact "drag chip" (e.g. "Night Light", 88 × 23 pill, `Theme.raised`) under the cursor while the other items reflow around the target cell with the `panel` spring.
-  - *Resize*: drag the bottom-right corner; snaps to whole cells; only sizes the control supports (`05-control-center.md` → Layout model). Labels hide as tiles shrink.
-  - *Right-click*: a menu of allowed sizes ("1×1", "3×1", "7×1", "1×3"…).
-  - If a drop doesn't fit, show "Doesn't fit here" (Regular 10.5 `danger`) next to the cursor and spring the item back.
+  - *Resize*: drag the left or right edge to change width, or the top or bottom edge to change height. Sizes snap to whole cells, keep the opposite edge anchored, and reflow colliding controls into the next free cells.
+  - Control positions and sizes animate with the `panel` spring in both the editor preview and the live Control Center.
+  - If the available grid cannot fit a resize, show "Doesn't fit here" (Regular 10.5 `danger`) and spring the item back.
   - **Tidy** compacts everything up/left without changing order. **Undo** pops a 20-step history. **Reset** restores the default layout.
 - "Add a control" (Regular 10.5 `textMuted`) at y 844, then a row of add-chips: pill 33 tall, radius 16.5, `Theme.control`, icon + name SemiBold 12.5 + size hint Regular 10.5 `textMuted` (e.g. "Now Playing 3×2"). Drag a chip into the grid or click it to drop it into the first free spot. Only controls not already placed are listed.
 - Footer hint at y 914: "Drag a control to move it, drag its corner to resize, or drop it outside the grid to remove it." Regular 10.5 `textMuted`.
-- Changing the column count re-flows the layout. Items wider than the new count clamp to the column count.
+- Changing the column count preserves valid positions, clamps oversized controls, and reflows items that no longer fit.
 
 Implement the grid logic in `GridLayoutModel.qml` as pure functions (`canPlace(item, x, y)`, `reflow(items, moving, target)`, `tidy(items)`), separate from the UI. They're the easiest place for bugs, and they can be checked with a tiny headless `qml6` script.
 

@@ -56,6 +56,13 @@ cache at `~/.local/state/dynamite/themes/<slug>.json` and the dedicated app
 outputs below. CLI selection updates `~/.config/dynamite/settings.json`; the
 selected slug is mirrored in `~/.config/omarchy/current-theme.json`.
 
+The Appearance settings editor stores per-theme color overrides in the
+`appearance.colorOverrides` setting in Dynamite's settings JSON. It does not
+modify Omarchy theme repositories or bundled `colors.toml` files. The theme
+manager validates those overrides and applies them to the Quickshell palette,
+terminal ANSI colors, and supported application outputs. Removing an override
+restores that role from the selected theme package.
+
 - `~/.config/fish/conf.d/dynamite-theme.fish`
 - `~/.config/kitty/current-theme.conf`
 - `~/.config/kitty/kitty.conf` (adds a managed include)
@@ -78,3 +85,7 @@ version beside it as `.dynamite-backup`. For destinations it creates, a
 Switching themes updates the generated files; running apps that support reload
 can pick up changes, while other apps use the new colors on next launch.
 Wallpaper changes never regenerate a palette.
+Quickshell regenerates these app outputs from the persisted selected theme
+after its settings have loaded at startup, so a previous session's generated
+palette does not remain active after changing the saved theme while the shell
+was stopped.

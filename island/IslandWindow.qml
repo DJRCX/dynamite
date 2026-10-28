@@ -11,7 +11,7 @@ import qs.theme
 
 PanelWindow {
     id: root
-    visible: !root.fullscreenSuppressed
+    visible: true
     anchors { top: true; left: true; right: true }
     implicitWidth: screen.width
     implicitHeight: Metrics.windowHeight
@@ -19,7 +19,7 @@ PanelWindow {
     exclusiveZone: root.outputFullscreen ? 0 : game ? Config.gameMode.barHeight : Config.island.gap + Config.island.barHeight
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "dynamite-island"
-    WlrLayershell.keyboardFocus: root.fullscreenSuppressed || !onThisScreen ? WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: !onThisScreen ? WlrKeyboardFocus.None
         : Island.exclusiveKeyboard ? WlrKeyboardFocus.Exclusive
         : Island.wantsKeyboard ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
@@ -27,16 +27,16 @@ PanelWindow {
     readonly property bool onThisScreen: mode === Island.mode
     readonly property bool game: Island.gameMode
     readonly property bool outputFullscreen: Niri.isOutputFullscreen(screen.name)
-    readonly property bool fullscreenSuppressed: root.outputFullscreen && Island.mode !== "osd"
+    readonly property bool fullscreenSuppressed: root.outputFullscreen && Island.mode === "collapsed"
     // Top of an expanded panel: below the islands, or below the game bar.
     readonly property real stageTop: game ? Config.gameMode.barHeight + Config.island.stageLift
         : Config.island.gap + Config.island.stageLift
 
     mask: Region {
         Region { item: root.outputFullscreen ? null : gameBar }
-        Region { item: root.outputFullscreen ? null : albumIsland }
-        Region { item: root.fullscreenSuppressed ? null : root.onThisScreen ? centerIsland : null }
-        Region { item: root.outputFullscreen ? null : statusIsland }
+        Region { item: root.outputFullscreen && root.mode !== "media" ? null : albumIsland }
+        Region { item: root.fullscreenSuppressed || !root.onThisScreen || root.mode === "media" || root.mode === "cc" ? null : centerIsland }
+        Region { item: root.outputFullscreen && root.mode !== "cc" ? null : statusIsland }
     }
     IdleInhibitor { window: root; enabled: Idle.caffeine }
 
@@ -67,10 +67,7 @@ PanelWindow {
         case "wallpapers": return Metrics.wallpaperPickerHeight
         case "clipboard": return Island.clipboardHeight
         case "keybinds": return Metrics.keybindPanelHeight
-        case "window": return 370 + WindowMenu.desktopActions.length * (Metrics.rowHeight + 5)
-            + (WindowMenu.outputs.length > 1 ? Metrics.rowHeight + 5 : 0)
-            + (WindowMenu.expanded === "workspace" ? Math.min(210, WindowMenu.targetWorkspaces.length * 37)
-            : WindowMenu.expanded === "monitor" ? Math.min(148, WindowMenu.outputs.length * 37) : 0)
+        case "window": return 610
         default: return game ? 0 : Config.island.barHeight
         }
     }
@@ -162,7 +159,7 @@ PanelWindow {
 
     SpringRect {
         id: centerIsland
-        visible: !root.fullscreenSuppressed
+        visible: root.onThisScreen && !root.fullscreenSuppressed && root.mode !== "media" && root.mode !== "cc"
         heightToken: root.launcherSettled || (root.mode === "window" && WindowMenu.expanded !== "") ? Motion.panel : Motion.island
         tx: (root.width - root.centerWidth()) / 2
         ty: root.centerY()
@@ -303,7 +300,7 @@ PanelWindow {
 
     SpringRect {
         id: albumIsland
-        visible: !root.outputFullscreen
+        visible: !root.outputFullscreen || root.mode === "media"
         readonly property bool shown: (Media.activePlayer !== null || !Config.island.albumCircleWhilePlaying) && !Island.gameMode
         springX: false
         readonly property bool expanded: root.mode === "media"
@@ -344,7 +341,7 @@ PanelWindow {
 
     SpringRect {
         id: statusIsland
-        visible: !root.outputFullscreen
+        visible: !root.outputFullscreen || root.mode === "cc"
         readonly property bool shown: Config.island.statusCircle && !Island.gameMode
         springX: false
         readonly property bool expanded: root.mode === "cc"

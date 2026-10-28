@@ -1,6 +1,6 @@
 # 01 — Architecture
 
-Target stack (verified on this machine): **Quickshell 0.3.1**, **Qt 6.11**, **Niri 26.04**, Arch/CachyOS.
+Historical design snapshot: this document was written for **Quickshell 0.3.1**, **Qt 6.11**, **Niri 26.04**, Arch/CachyOS. For current version requirements, see [`quickshell/README.md`](quickshell/README.md) and [`niri/README.md`](niri/README.md).
 
 ## Directory layout
 

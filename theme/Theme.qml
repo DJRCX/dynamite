@@ -114,6 +114,10 @@ Singleton {
 
     Timer { id: cacheReload; interval: 400; repeat: false; onTriggered: themeFile.reload() }
     onNameChanged: cacheReload.restart()
+    Connections {
+        target: Config.appearance
+        function onColorOverridesChanged(): void { cacheReload.restart() }
+    }
 
     // font.pixelSize is an int; fractional pixel sizes from the spec go through font.pointSize (96 dpi).
     function pt(px: real): real { return px * 0.75 }
@@ -130,7 +134,14 @@ Singleton {
         printErrors: false
         onLoaded: {
             if (root.name === "wallpaper") return
-            try { root.apply(JSON.parse(text())) }
+            try {
+                const palette = JSON.parse(text())
+                const overrides = Config.appearance.colorOverrides?.[root.name] || {}
+                for (const key in root.defaults) {
+                    if (/^#[0-9a-fA-F]{6}$/.test(overrides[key] || "")) palette[key] = overrides[key]
+                }
+                root.apply(palette)
+            }
             catch (error) { console.warn("[Dynamite] invalid rendered theme JSON:", error) }
         }
         onLoadFailed: console.warn("[Dynamite] theme not found:", Config.appearance.theme)

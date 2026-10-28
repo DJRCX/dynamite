@@ -5,7 +5,8 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$DIR/vpointer"
 BIN="${XDG_CACHE_HOME:-$HOME/.cache}/dynamite-dev/vpointer"
-DISPLAY_NAME="$(cat /tmp/dynamite-display 2>/dev/null)" || { echo "nested session not running (dev/run-nested.sh)" >&2; exit 1; }
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/dynamite-${UID}"
+DISPLAY_NAME="$(cat "$RUNTIME_DIR/display" 2>/dev/null)" || { echo "nested session not running (dev/run-nested.sh)" >&2; exit 1; }
 
 if [[ ! -x "$BIN" || "$SRC/vpointer.c" -nt "$BIN" ]]; then
     build="$(dirname "$BIN")"

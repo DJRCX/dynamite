@@ -11,6 +11,11 @@ Singleton {
     property string error: ""
     property string lastAction: ""
     property var current: Config.wallpaper.current
+    property bool daemonReady: false
+    property var restoreQueue: []
+    property var activeRestore: null
+    property var seenOutputs: []
+    property int retryDelay: 500
 
     function migrateStoredPaths(): void {
         if (!Themes.wallpapers.length) return
@@ -40,8 +45,11 @@ Singleton {
             return
         }
         root.error = ""
-        applyProcess.exec(WallpaperCommand.image(path, key, Config.wallpaper.transition,
-                                                Config.wallpaper.transitionSeconds))
+        if (!daemonReady) {
+            probeDaemon()
+            return
+        }
+        enqueue(path, key === "*" ? "" : key)
     }
     function next(): void { step(1) }
     function prev(): void { step(-1) }
@@ -64,11 +72,87 @@ Singleton {
         const nextIndex = ((index + delta) % files.length + files.length) % files.length
         set(files[nextIndex].path, "")
     }
+    function enqueue(path: string, output: string): void {
+        if (!path) return
+        const command = WallpaperCommand.image(path, output, Config.wallpaper.transition,
+                                               Config.wallpaper.transitionSeconds)
+        restoreQueue = restoreQueue.concat([{ path: path, command: command }])
+        runNext()
+    }
+    function runNext(): void {
+        if (!daemonReady || applyProcess.running || !restoreQueue.length) return
+        activeRestore = restoreQueue[0]
+        applyProcess.exec(activeRestore.command)
+    }
+    function restoreSaved(): void {
+        if (!daemonReady || !Config.startupReady) return
+        const saved = Config.wallpaper.current || ({})
+        if (saved["*"]) enqueue(saved["*"], "")
+        for (const output of Displays.outputs) {
+            const path = saved[output.name]
+            if (path) enqueue(path, output.name)
+        }
+        seenOutputs = Displays.outputs.map(output => output.name)
+    }
+    function probeDaemon(): void {
+        if (!daemonReady && !daemonProbe.running) daemonProbe.running = true
+    }
+    function probeFinished(code: int): void {
+        if (code === 0) {
+            daemonReady = true
+            retryDelay = 500
+            root.error = ""
+            restoreSaved()
+            runNext()
+        } else {
+            daemonReady = false
+            retryDelay = Math.min(8000, retryDelay * 2)
+            retryProbe.interval = retryDelay
+            retryProbe.restart()
+        }
+    }
+    function restoreNewOutputs(): void {
+        if (!daemonReady || !Config.startupReady) return
+        const names = Displays.outputs.map(output => output.name)
+        for (const output of Displays.outputs) {
+            if (seenOutputs.includes(output.name)) continue
+            const path = Config.wallpaper.current[output.name] || Config.wallpaper.current["*"] || ""
+            if (path) enqueue(path, output.name)
+        }
+        seenOutputs = names
+    }
+    Process {
+        id: daemonProbe
+        command: ["awww", "query"]
+        onExited: (code) => root.probeFinished(code)
+    }
     Process {
         id: applyProcess
-        command: ["awww", "query"]
-        onExited: (code) => { root.error = code === 0 ? "" : "Wallpaper apply failed (awww exit " + code + ")" }
+        onExited: (code) => {
+            if (root.activeRestore) {
+                if (code === 0) {
+                    root.error = ""
+                } else root.error = "Wallpaper apply failed (awww exit " + code + ")"
+            }
+            root.activeRestore = null
+            root.restoreQueue = root.restoreQueue.slice(1)
+            root.runNext()
+        }
     }
+    Timer { id: retryProbe; interval: 500; onTriggered: root.probeDaemon() }
+    Connections {
+        target: Config
+        function onStartupReadyChanged() {
+            if (!Config.startupReady) return
+            if (root.daemonReady) root.restoreSaved()
+            else root.probeDaemon()
+        }
+    }
+    Connections {
+        target: Displays
+        function onOutputsChanged() { root.restoreNewOutputs() }
+    }
+    Component.onCompleted: if (Config.startupReady) probeDaemon()
     Timer {
         interval: Math.max(1, Config.wallpaper.slideshowMinutes) * 60000
         running: Config.wallpaper.slideshowMinutes > 0 && Themes.wallpapers.length > 1

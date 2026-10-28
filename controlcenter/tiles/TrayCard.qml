@@ -22,13 +22,12 @@ Rectangle {
         visible: SystemTray.items.count === 0
     }
 
-    ListView {
+    GridView {
         id: trayList
         x: 12; y: 27
         width: root.width - 24
-        height: 28
-        orientation: ListView.Horizontal
-        spacing: 6
+        height: Math.max(28, root.height - 34)
+        cellWidth: 34; cellHeight: 34
         clip: true
         model: SystemTray.items
         delegate: Rectangle {

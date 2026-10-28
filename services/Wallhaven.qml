@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 import qs.services
+import qs.theme
 
 Singleton {
     id: root
@@ -33,8 +34,14 @@ Singleton {
             if (xhr.status !== 200) { error = "Wallhaven is unreachable"; hasMore = false; return }
             try {
                 const response = JSON.parse(xhr.responseText)
-                results = addResults ? results.concat(response.data || []) : (response.data || [])
+                const landscape = (response.data || []).filter(item =>
+                    Number(item.dimension_x) > Number(item.dimension_y))
+                results = addResults ? results.concat(landscape) : landscape
                 hasMore = Boolean(response.meta && response.meta.current_page < response.meta.last_page)
+                if (results.length < Metrics.wallpaperPrefetchCount && hasMore) {
+                    page = Number(response.meta.current_page) + 1
+                    search(query, sort, true)
+                }
             } catch (e) { error = "Wallhaven returned an invalid response"; hasMore = false }
         }
         xhr.open("GET", "https://wallhaven.cc/api/v1/search?q=" + encodeURIComponent(query) +
@@ -50,7 +57,7 @@ Singleton {
         return original ? item.path : (item.thumbs?.large || item.path)
     }
     function preview(item: var): void {
-        if (!item) return
+        if (!item || mkdir.running || download.running || categorize.running) return
         if (!previewing) {
             previousWallpaper = Config.wallpaper.current["*"] || ""
             previewing = true
@@ -79,6 +86,7 @@ Singleton {
         return found ? "." + found[1].toLowerCase().replace("jpeg", "jpg") : ".jpg"
     }
     function startDownload(url: string, path: string, action: string): void {
+        if (mkdir.running || download.running || categorize.running) return
         pendingUrl = url; pendingPath = path; pendingAction = action
         if (action !== "keep") pendingTheme = ""
         mkdir.command = ["mkdir", "-p", path.substring(0, path.lastIndexOf("/"))]
@@ -86,7 +94,7 @@ Singleton {
     }
     Process {
         id: mkdir
-        command: ["mkdir", "-p", "/tmp"]
+        command: ["mkdir", "-p", Quickshell.env("HOME") + "/.cache/dynamite/wallhaven"]
         onExited: (code) => {
             if (code !== 0) { root.error = "Could not create wallpaper cache"; return }
             download.command = ["curl", "-L", "--fail", "--silent", "--show-error", "-o", root.pendingPath, root.pendingUrl]

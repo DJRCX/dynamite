@@ -18,6 +18,8 @@ Singleton {
     property bool expanded: false
     property var locations: []
     property bool searching: false
+    property int refreshGeneration: 0
+    property int searchGeneration: 0
     property string cachePath: Quickshell.env("HOME") + "/.cache/dynamite/weather.json"
 
     function description(codeValue: int): string {
@@ -51,12 +53,16 @@ Singleton {
         if (cacheOnly) error = "Offline · cached " + updated
     }
     function refresh(): void {
+        const generation = ++refreshGeneration
         if (Config.weather.lat === null || Config.weather.lon === null) { error = "Choose a location in Settings"; return }
-        const unit = Config.weather.units === "fahrenheit" ? "&temperature_unit=fahrenheit" : ""
+        const latitude = Config.weather.lat
+        const longitude = Config.weather.lon
+        const units = Config.weather.units
+        const unit = units === "fahrenheit" ? "&temperature_unit=fahrenheit" : ""
         const xhr = new XMLHttpRequest()
         xhr.timeout = 15000
         xhr.onreadystatechange = function() {
-            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.readyState !== XMLHttpRequest.DONE || generation !== refreshGeneration) return
             if (xhr.status !== 200) { error = hourly.time?.length ? "Offline · cached " + updated : "Weather unavailable"; return }
             try {
                 const payload = JSON.parse(xhr.responseText)
@@ -68,9 +74,12 @@ Singleton {
                 pendingCache = JSON.stringify(payload)
             } catch (e) { error = "Invalid weather response" }
         }
-        xhr.ontimeout = function() { error = hourly.time?.length ? "Offline · cached " + updated : "Weather unavailable" }
-        const url = "https://api.open-meteo.com/v1/forecast?latitude=" + Config.weather.lat +
-            "&longitude=" + Config.weather.lon +
+        xhr.ontimeout = function() {
+            if (generation === refreshGeneration)
+                error = hourly.time?.length ? "Offline · cached " + updated : "Weather unavailable"
+        }
+        const url = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude +
+            "&longitude=" + longitude +
             "&current=temperature_2m,apparent_temperature,weather_code,is_day" +
             "&hourly=temperature_2m,weather_code,precipitation_probability" +
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" +
@@ -80,11 +89,12 @@ Singleton {
     }
     property string pendingCache: ""
     function searchLocation(query: string): void {
-        if (!query.trim()) { locations = []; return }
+        const generation = ++searchGeneration
+        if (!query.trim()) { locations = []; searching = false; return }
         searching = true
         const xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function() {
-            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.readyState !== XMLHttpRequest.DONE || generation !== searchGeneration) return
             searching = false
             if (xhr.status !== 200) { locations = []; return }
             try { locations = JSON.parse(xhr.responseText).results || [] } catch (e) { locations = [] }
